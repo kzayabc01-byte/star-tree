@@ -1,4 +1,4 @@
-# 🌌 WebGPU Galaxy Simulation
+# 🌳 Star Tree
 
 A real-time GPU-accelerated galaxy simulation using WebGPU, Three.js, and TSL (Three.js Shading Language). Experience an interactive spiral galaxy with up to 750,000 particles, dynamic bloom effects, and customizable parameters.
 
@@ -14,7 +14,7 @@ A real-time GPU-accelerated galaxy simulation using WebGPU, Three.js, and TSL (T
 
 ## 🚀 Live Demo
 
-Visit the live demo at: `https://dgreenheck.github.io/webgpu-galaxy/`
+Visit the live demo at: `https://kzayabc01-byte.github.io/star-tree/`
 
 ## 🛠️ Technologies
 

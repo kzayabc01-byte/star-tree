@@ -1,20 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPU Galaxy Simulation - TSL + WebGPU</title>
+    <title>Star Tree - TSL + WebGPU</title>
     <link rel="stylesheet" href="./styles.css">
+
+    <!-- MediaPipe Hands + Camera (手势追踪) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
+    <div id="intro" class="intro intro-stage-birth" aria-label="Galaxy intro">
+        <div class="intro-core" aria-hidden="true">
+            <div class="intro-core-plane"></div>
+            <div class="intro-core-sphere">
+                <div class="intro-core-surface"></div>
+                <div class="intro-core-atmosphere"></div>
+                <div class="intro-core-equator"></div>
+            </div>
+            <div class="intro-core-ring intro-core-ring-a"></div>
+            <div class="intro-core-ring intro-core-ring-b"></div>
+        </div>
+        <div class="intro-shockwave intro-shockwave-a" aria-hidden="true"></div>
+        <div class="intro-shockwave intro-shockwave-b" aria-hidden="true"></div>
+        <div class="intro-particles" aria-hidden="true"></div>
+        <div class="intro-wave-particles" aria-hidden="true"></div>
+        <div class="intro-dust-clouds" aria-hidden="true"></div>
+        <div class="intro-progress" aria-hidden="true"></div>
+        <button id="intro-skip" type="button">Skip</button>
+    </div>
+
+    <!-- HUD -->
     <div id="info">
         <h1>🌌 GPU Galaxy Simulation</h1>
         <div>FPS: <span id="fps">60</span></div>
-        <div>Stars: <span id="star-count">100000</span></div>
+        <div>Stars: <span id="star-count">750000</span></div>
+        <div>视角: <span id="view-name">星系全景</span> [<span id="poi-name">星系全景</span>]</div>
+        <div>状态: <span id="status">就绪</span> · <span id="mode-indicator">🖱 鼠标模式</span></div>
         <div class="hint">
-            🖱️ Drag to interact with galaxy<br>
-            🎮 Use right panel controls
+            🖐 手势: 挥手切换 &nbsp;|&nbsp; 握拳放大 &nbsp;|&nbsp; 双手合拢聚集星云<br>
+            🖐 五指张开收缩 &nbsp;|&nbsp; 手掌前后缩放<br>
+            ⌨ 键盘: ← → 切换 &nbsp;|&nbsp; 空格放大 &nbsp;|&nbsp; R 重置 &nbsp;|&nbsp; F 全屏<br>
+            🖱 鼠标: 拖拽旋转 &nbsp;|&nbsp; 滚轮缩放 &nbsp;|&nbsp; 长按推拉粒子
         </div>
+    </div>
+
+    <!-- Webcam preview (bottom-left, mirror-flipped) -->
+    <div id="vcam">
+        <video id="webcam" autoplay playsinline></video>
     </div>
 
     <script type="module" src="./main.js"></script>

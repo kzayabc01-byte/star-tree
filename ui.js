@@ -14,6 +14,7 @@ export class GalaxyUI {
   setupUI() {
     this.setupPerformanceFolder();
     this.setupAppearanceFolder();
+    this.setupGrowthFolder();
     this.setupCloudsFolder();
     this.setupBloomFolder();
     this.setupGalaxyFolder();
@@ -59,6 +60,32 @@ export class GalaxyUI {
       label: 'Sparse Color',
       view: 'color'
     }).on('change', () => this.callbacks.onUniformChange('sparseStarColor', this.config.sparseStarColor));
+  }
+
+  setupGrowthFolder() {
+    const growthFolder = this.pane.addFolder({ title: '🌱 Growth Mode' });
+
+    growthFolder.addBinding(this.config, 'growthCoreColor', {
+      label: 'Core Color',
+      view: 'color'
+    }).on('change', () => this.callbacks.onUniformChange('growthCoreColor', this.config.growthCoreColor));
+
+    growthFolder.addBinding(this.config, 'growthArmColor', {
+      label: 'Arm Color',
+      view: 'color'
+    }).on('change', () => this.callbacks.onUniformChange('growthArmColor', this.config.growthArmColor));
+
+    growthFolder.addBinding(this.config, 'growthTipColor', {
+      label: 'Tip Color',
+      view: 'color'
+    }).on('change', () => this.callbacks.onUniformChange('growthTipColor', this.config.growthTipColor));
+
+    growthFolder.addBinding(this.config, 'gatheringThreshold', {
+      min: 0.3,
+      max: 1.5,
+      step: 0.1,
+      label: 'Trigger Threshold'
+    }).on('change', () => this.callbacks.onGrowthThresholdChange(this.config.gatheringThreshold));
   }
 
   setupCloudsFolder() {

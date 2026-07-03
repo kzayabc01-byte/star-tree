@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-galaxy",
+  "name": "star-tree",
   "version": "1.0.0",
   "type": "module",
   "description": "GPU Galaxy Simulation using WebGPU and Three.js",

@@ -126,3 +126,32 @@ export const applySpringForce = Fn(([currentPos, targetPos, strength, deltaTime]
   const toTarget = targetPos.sub(currentPos);
   return toTarget.mul(strength).mul(deltaTime);
 });
+
+/**
+ * Applies attraction force to pull particles toward a target point
+ * Used for "hands together" gesture to gather the galaxy
+ *
+ * Force = direction * strength * influence * deltaTime
+ * Influence = smooth falloff based on distance (closer = stronger)
+ *
+ * @param {vec3} position - Particle position
+ * @param {vec3} target - Target position (e.g., hands center)
+ * @param {float} active - Whether attraction is active (0 or 1)
+ * @param {float} strength - Strength of attraction force
+ * @param {float} maxRadius - Maximum radius of influence
+ * @param {float} deltaTime - Time step
+ * @returns {vec3} - Force vector to apply
+ */
+export const applyAttractionForce = Fn(([position, target, active, strength, maxRadius, deltaTime]) => {
+  const toTarget = target.sub(position);
+  const distToTarget = length(toTarget);
+
+  // Calculate influence with smooth distance falloff
+  // Closer particles feel stronger attraction
+  const distFactor = distToTarget.div(maxRadius).min(1.0);
+  const influence = active.mul(float(1.0).sub(distFactor)).max(0.0);
+
+  // Pull particles toward target (positive direction)
+  const targetDir = normalize(toTarget);
+  return targetDir.mul(strength).mul(influence).mul(deltaTime);
+});
