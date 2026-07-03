@@ -93,7 +93,7 @@ body.intro-complete .tp-dfwv {
         radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.35) 22%, rgba(24, 133, 255, 0.42) 52%, rgba(255, 178, 138, 0.22) 74%, rgba(255, 255, 255, 0) 100%),
         radial-gradient(circle at 32% 42%, rgba(255, 178, 138, 0.55) 0%, rgba(255, 178, 138, 0) 48%),
         radial-gradient(circle at 68% 58%, rgba(24, 133, 255, 0.55) 0%, rgba(24, 133, 255, 0) 52%),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
     background-size: auto, auto, auto, cover;
     background-position: center, center, center, center;
     background-repeat: no-repeat;
@@ -135,7 +135,7 @@ body.intro-complete .tp-dfwv {
         radial-gradient(circle at 34% 40%, rgba(255, 178, 138, 0.52) 0%, rgba(255, 178, 138, 0) 44%),
         radial-gradient(circle at 68% 60%, rgba(24, 133, 255, 0.56) 0%, rgba(24, 133, 255, 0) 48%),
         radial-gradient(circle at 52% 64%, rgba(255, 218, 206, 0.22) 0%, rgba(255, 218, 206, 0) 50%),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
     background-size: auto, auto, auto, auto, cover;
     background-position: center, center, center, center, center;
     background-repeat: no-repeat;
@@ -261,7 +261,7 @@ body.intro-complete .tp-dfwv {
             rgba(255, 255, 255, 0.06) 52%,
             rgba(255, 255, 255, 0) 100%
         ),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
     background-size: 100% 100%, cover;
     background-position: center, center;
     background-repeat: no-repeat;
@@ -298,7 +298,7 @@ body.intro-complete .tp-dfwv {
             rgba(255, 255, 255, 0.06) 54%,
             rgba(255, 255, 255, 0) 100%
         ),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
     background-size: 100% 100%, cover;
     background-position: center, center;
     background-repeat: no-repeat;
@@ -314,7 +314,7 @@ body.intro-complete .tp-dfwv {
             rgba(24, 133, 255, 0.08) 56%,
             rgba(24, 133, 255, 0) 100%
         ),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
 }
 
 .intro-dust-cloud-warm {
@@ -326,7 +326,7 @@ body.intro-complete .tp-dfwv {
             rgba(255, 178, 138, 0.08) 56%,
             rgba(255, 178, 138, 0) 100%
         ),
-        url("/webgpu-galaxy/cloud.png");
+        url("/star-tree/cloud.png");
 }
 
 .intro-progress {
