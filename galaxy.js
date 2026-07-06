@@ -93,9 +93,10 @@ export class GalaxySimulation {
     // Alternate sword-array state
     this.growthMode = false;
     this.growthProgress = 0.0;
-    this.gatheringThreshold = 0.7; // reused as charge time
+    this.gatheringThreshold = 2.0; // ~2 秒凝聚时间
     this.lastGatheringLevel = 0.0;
     this.swordPoseActive = false;
+    this.isTreeLocked = false; // 🌟 一键触发后永久定型
 
     // Leaf particle system state
     this.LEAF_COUNT = config.leafCount || 15000;
@@ -152,14 +153,14 @@ export class GalaxySimulation {
         denseStarColor: uniform(new THREE.Color(config.denseStarColor || '#99ccff')),
         sparseStarColor: uniform(new THREE.Color(config.sparseStarColor || '#ffb380')),
         cloudTintColor: uniform(new THREE.Color(config.cloudTintColor || '#6ba8cc')),
-        // Tree effect colors
-        growthCoreColor: uniform(new THREE.Color('#ffd700')),
-        growthArmColor: uniform(new THREE.Color('#ff8c00')),
-        growthTipColor: uniform(new THREE.Color('#ffaa00')),
+        // Tree effect colors (阿凡达光纤生命树配色)
+        growthCoreColor: uniform(new THREE.Color('#00ffff')),   // 青色/亮蓝
+        growthArmColor: uniform(new THREE.Color('#0055ff')),    // 深邃蓝
+        growthTipColor: uniform(new THREE.Color('#ffffff')),    // 纯白发光点
         // Leaf effect colors
-        leafColorDark: uniform(new THREE.Color('#0d6633')),   // deep emerald
-        leafColorLight: uniform(new THREE.Color('#99e64d')),  // bright yellow-green
-        leafOpacity: uniform(0.12),
+        leafColorDark: uniform(new THREE.Color('#001133')),     // 极暗夜空蓝
+        leafColorLight: uniform(new THREE.Color('#00e5ff')),    // 明亮荧光青
+        leafOpacity: uniform(0.08),
         leafSize: uniform(0.8)
       }
     };
@@ -225,59 +226,63 @@ export class GalaxySimulation {
       this.spawnPositionBuffer.element(idx).assign(position);
       this.originalPositionBuffer.element(idx).assign(position);
 
-      // ---- Calculate growth target position (真正的大树形态：根基 -> 树干 -> 树冠) ----
+      // ---- Calculate growth target position (100% 绝对安全的树形态算法) ----
         const growthSeed = hash(seed.add(10));
-        const h = growthSeed; // 粒子在树上的高度比例 (0.0 到 1.0)
+        const h = growthSeed; // 0.0 到 1.0
 
-        // 定义树的整体极限高度
-        const MAX_TREE_HEIGHT = this.uniforms.galaxy.radius.mul(4.0);
+        const MAX_TREE_HEIGHT = this.uniforms.galaxy.radius.mul(3.5);
         const rawTreeY = h.mul(MAX_TREE_HEIGHT);
 
-        // 核心修复：树木轮廓曲线 (Profile Curve)
-        // 1. 根部：(0.0 - 0.1) 向外呈指数型抓地展开
-        const rootSpread = float(1.0).sub(smoothstep(float(0.0), float(0.1), h)).pow(float(2.0)).mul(float(1.5));
+        // 1. 发光根系 (收缩范围，快速过渡到树干，不再像摊大饼)
+        const rootFactor = float(1.0).sub(smoothstep(float(0.0), float(0.08), h));
+        const rootSpread = rootFactor.pow(float(2.0)).mul(float(2.0));
 
-        // 2. 树干：基础粗细，保持笔直
-        const trunkSpread = float(0.2);
+        // 2. 笔直纤细的树干 (大幅缩小树干宽度)
+        const trunkSpread = float(0.06);
 
-        // 3. 树冠：(0.4 - 0.8) 迅速向外展开，(0.8 - 1.0) 顶部微微收拢成半球形
-        const canopyStart = smoothstep(float(0.4), float(0.8), h);
-        const canopyEnd = smoothstep(float(0.8), float(1.0), h).mul(float(0.3)); // 顶部收拢因子
-        const crownSpread = canopyStart.sub(canopyEnd).mul(float(3.8)); // 3.8是树冠展开最大宽度
+        // 3. 饱满圆润的自然树冠穹顶 (🌟 核心修复：使用完美抛物线曲线)
+        const canopyFactor = smoothstep(float(0.4), float(1.0), h);
+        // canopyCurve: 0.4处为0 -> 0.7处为1(最宽) -> 1.0处收回0(完美圆顶)
+        const canopyCurve = float(1.0).sub(pow(canopyFactor.mul(2.0).sub(1.0), float(2.0)));
+        const crownSpread = canopyCurve.mul(float(5.5)); // 树冠展开 5.5
 
-        // 组合基础半径
-        const baseSpread = rootSpread.add(trunkSpread).add(crownSpread);
+        // 4. 树叶团簇与噪点
+        const treeAngle = hash(seed.add(11)).mul(6.28318);
+        const noise = sin(treeAngle.mul(15.0).add(h.mul(40.0))).mul(float(0.5)).add(float(0.5));
+        // 🌟 噪点也必须受曲线约束，这样头顶就不会爆出尖刺
+        const canopyNoise = noise.mul(canopyCurve).mul(float(1.2));
 
-        // 树的层级（用于颜色和大小，0=根部 -> 3=树冠顶部）
-        const treeLevel = h.mul(3.0);
+        // 综合半径展开
+        const baseSpread = rootSpread.add(trunkSpread).add(crownSpread).add(canopyNoise);
 
-        // 随机分支偏移 (让树枝不那么规则)
-        const branchArmIndex = hash(seed.add(11)).mul(this.uniforms.galaxy.armCount.mul(4.0)).floor();
-        const branchBaseAngle = branchArmIndex.mul(6.28318).div(this.uniforms.galaxy.armCount.mul(4.0));
+        // 内部体积填充 (让树冠不是空心壳)
+        const volumeFill = float(1.0).sub(hash(seed.add(20)).mul(float(0.6)).mul(canopyFactor));
 
-        // 螺旋扭曲与摇摆
-        const growthSpiralAngle = h.pow(float(1.2)).mul(6.28318).mul(float(1.5));
-        const swayAngle = hash(seed.add(12)).sub(0.5).mul(0.5).mul(canopyStart); // 只有树冠受风摇摆
-        const growthAngleFinal = branchBaseAngle.add(growthSpiralAngle).add(swayAngle);
+        // 角度与螺旋
+        const treeSpiralAngle = h.mul(6.28318).mul(float(1.5));
+        const swayAngle = hash(seed.add(12)).sub(0.5).mul(0.6).mul(canopyFactor);
+        const growthAngleFinal = treeAngle.add(treeSpiralAngle).add(swayAngle);
 
-        // 树枝粗细噪点
-        const thicknessNoise = hash(seed.add(13)).sub(0.5).mul(0.4).mul(canopyStart);
-        const growthRadiusFinal = baseSpread.add(thicknessNoise).max(float(0.0)).mul(this.uniforms.galaxy.radius);
-
-        // 垂坠感 (重力下垂)：让伸出去的树枝往下弯，消除漏斗感
-        // 半径越大，Y轴被拉低的程度越深
-        const droopAmount = baseSpread.pow(float(1.5)).mul(float(0.3)).mul(canopyStart);
-
-        // 计算最终坐标
+        const growthRadiusFinal = baseSpread.mul(volumeFill).mul(this.uniforms.galaxy.radius);
         const growthX = cos(growthAngleFinal).mul(growthRadiusFinal);
         const growthZ = sin(growthAngleFinal).mul(growthRadiusFinal);
 
-        // 应用垂坠感计算最终Y高度，并将整体下移与地面贴合
+        // 计算最终 Y 坐标 (🌟 垂直体积 puffY 也受 canopyCurve 约束，彻底消灭头顶喷泉！)
+        const droop = crownSpread.mul(float(0.2));
+        const puffY = hash(seed.add(21)).sub(0.5).mul(float(2.8)).mul(canopyCurve);
+
         const growthY = rawTreeY
-          .sub(droopAmount.mul(this.uniforms.galaxy.radius)) // 树枝重力下垂
-          .sub(this.uniforms.galaxy.radius.mul(1.5)); // 整体基础沉降对齐中心
+            .sub(droop.mul(this.uniforms.galaxy.radius))
+            .add(puffY.mul(this.uniforms.galaxy.radius))
+            .sub(rootFactor.mul(this.uniforms.galaxy.radius.mul(0.3))) // 根部微沉
+            .sub(this.uniforms.galaxy.radius.mul(1.5));
 
         const growthPosition = vec3(growthX, growthY, growthZ);
+
+        // 写入 Buffer
+        const treeLevel = h.mul(3.0);
+        this.growthTargetBuffer.element(idx).assign(growthPosition);
+        this.growthTreeLevelBuffer.element(idx).assign(treeLevel);
 
       const swordBladeCount = this.uniforms.galaxy.armCount.mul(3.0).add(6.0);
       const swordBladeIndex = hash(seed.add(21)).mul(swordBladeCount).floor();
@@ -313,9 +318,7 @@ export class GalaxySimulation {
         .add(swordVerticalOffset);
       const swordPosition = vec3(swordX, swordY, swordZ);
 
-      this.growthTargetBuffer.element(idx).assign(growthPosition);
       this.growthAngleBuffer.element(idx).assign(swordAngleFinal);
-      this.growthTreeLevelBuffer.element(idx).assign(treeLevel);
 
       // Calculate orbital velocity (faster closer to center)
       const orbitalSpeed = float(1.0).div(offsetRadius.add(0.5)).mul(5.0);
@@ -338,15 +341,9 @@ export class GalaxySimulation {
       const originalPos = this.originalPositionBuffer.element(idx);
       const growthTargetPos = this.growthTargetBuffer.element(idx);
 
-      // 🌟 NEW: Apply hand spread scaling (借鉴 gem4)
-      // 云粒子也响应五指张开（效果更强）
-      const spreadScale = this.uniforms.compute.handSpread;
-      const spreadPos = position.mul(spreadScale);
-      position.assign(spreadPos);
-
       // Apply differential rotation (reduce during growth mode)
       const rotationSpeed = this.uniforms.compute.rotationSpeed.mul(
-        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(0.8)))
+        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(1.0)))
       );
       const rotatedPos = applyDifferentialRotation(
         position,
@@ -394,23 +391,27 @@ export class GalaxySimulation {
       // ---- Growth mode: smooth transition to spiral plant shape ----
       const growthActive = this.uniforms.compute.growthModeActive;
       const growthProg = this.uniforms.compute.growthProgress;
-
-      // 使用 TSL 条件：当生长模式激活时，应用过渡力
       const smoothProgress = pow(growthProg, float(0.7)); // ease-out 曲线
 
-      // 过渡力：当前位置 → 螺旋植物目标位置
-      const transitionForce = growthTargetPos.sub(position).mul(smoothProgress.mul(8.0)).mul(this.uniforms.compute.deltaTime);
-      // 只在生长模式下应用
+      // 🌟 【修复压扁问题】缩放系数只影响水平的 X 和 Z，保留 Y 轴挺拔的高度！
+      const spreadScale = this.uniforms.compute.handSpread;
+      const scaledGrowthTarget = vec3(
+        growthTargetPos.x.mul(spreadScale),
+        growthTargetPos.y, // 保持高度不变
+        growthTargetPos.z.mul(spreadScale)
+      );
+
+      // 过渡力：当前位置 → 缩放后的目标位置
+      const transitionForce = scaledGrowthTarget.sub(position).mul(smoothProgress.mul(8.0)).mul(this.uniforms.compute.deltaTime);
       position.addAssign(transitionForce.mul(growthActive));
 
-      // 生长过程中的额外旋转（增强螺旋感）
-      const growthRotationSpeed = float(0.4).mul(growthActive).mul(smoothProgress);
+      // 生长过程中的额外旋转
+      const growthRotationSpeed = float(0.4).mul(growthActive).mul(float(1.0).sub(growthProg));
       const growthRotatedPos = applyDifferentialRotation(position, growthRotationSpeed, this.uniforms.compute.deltaTime);
-      position.assign(mix(position, growthRotatedPos, growthActive.mul(0.5)));
+      position.assign(mix(position, growthRotatedPos, growthActive.mul(float(1.0).sub(growthProg))));
 
-      // Apply spring force to restore to target position
-      // 在生长模式下，弹簧力指向螺旋植物目标，否则指向原始位置
-      const springTarget = mix(rotatedOriginal, growthTargetPos, growthActive.mul(growthProg));
+      // 🌟 弹簧目标也同样只缩放 X 和 Z
+      const springTarget = mix(rotatedOriginal, scaledGrowthTarget, growthActive.mul(growthProg));
       const springStrength = float(2.0)
         .sub(this.uniforms.compute.handsTogetherActive.mul(1.5))
         .sub(growthActive.mul(growthProg.mul(1.8)));
@@ -461,14 +462,14 @@ export class GalaxySimulation {
       // Level 2 (次级分支) = 金橙色
       // Level 3 (树叶/花朵) = 柔和金粉色
 
-      const trunkColor = vec3(this.uniforms.visual.growthCoreColor); // 主干：金色
-      const mainBranchColor = vec3(this.uniforms.visual.growthArmColor); // 主分支：橙色
+      const trunkColor = vec3(this.uniforms.visual.growthCoreColor); // 主干：青蓝
+      const mainBranchColor = vec3(this.uniforms.visual.growthArmColor); // 主分支：深邃蓝
       const subBranchColor = mix(
         vec3(this.uniforms.visual.growthCoreColor),
         vec3(this.uniforms.visual.growthArmColor),
         float(0.5)
-      ); // 次级分支：金橙混合
-      const leafColor = vec3(this.uniforms.visual.growthTipColor).mul(1.2); // 树叶：明亮金橙
+      ); // 次级分支：青蓝混合
+      const leafColor = vec3(this.uniforms.visual.growthTipColor).mul(1.2); // 树叶：纯白发光
 
       // 根据树的层级选择颜色
       const levelColor = mix(
@@ -599,38 +600,35 @@ export class GalaxySimulation {
         // 修复高度对齐：让云层仅在树冠部分 (0.6 ~ 1.0) 产生，但高度映射与主树严格一致
         const h = float(0.6).add(growthSeed.pow(float(1.5)).mul(float(0.4)));
 
-        const MAX_TREE_HEIGHT = this.uniforms.galaxy.radius.mul(4.0); // 必须与主树高度基数完全一致！
+        const MAX_TREE_HEIGHT = this.uniforms.galaxy.radius.mul(3.5);
         const rawTreeY = h.mul(MAX_TREE_HEIGHT);
 
-        // 云层扩散范围：比下方主树枝稍微大一点，形成包裹感
-        const canopyStart = smoothstep(float(0.4), float(0.8), h);
-        const canopyEnd = smoothstep(float(0.8), float(1.0), h).mul(float(0.2));
-        const crownSpread = canopyStart.sub(canopyEnd).mul(float(4.5)); // 扩散4.5，比主树的3.8更大，形成包裹
+        // 🌟 云层同样使用抛物线穹顶轮廓
+        const canopyFactor = smoothstep(float(0.4), float(1.0), h);
+        const canopyCurve = float(1.0).sub(pow(canopyFactor.mul(2.0).sub(1.0), float(2.0)));
+        const crownSpread = canopyCurve.mul(float(5.8)); // 比星星稍微大一点，形成包裹
 
-        // 云团的离散与蓬松感
         const cloudFuzziness = hash(seed.add(19)).pow(float(2.0)).mul(float(1.5));
         const baseSpread = crownSpread.add(cloudFuzziness);
 
-        // 角度与螺旋
         const branchArmIndex = hash(seed.add(11)).mul(this.uniforms.galaxy.armCount.mul(5.0)).floor();
         const branchBaseAngle = branchArmIndex.mul(6.28318).div(this.uniforms.galaxy.armCount.mul(5.0));
         const cloudGrowthSpiralAngle = h.pow(float(1.2)).mul(6.28318).mul(float(1.5));
-        const swayAngle = hash(seed.add(12)).sub(0.5).mul(1.0).mul(canopyStart);
+        const swayAngle = hash(seed.add(12)).sub(0.5).mul(1.0).mul(canopyFactor);
         const growthAngleFinal = branchBaseAngle.add(cloudGrowthSpiralAngle).add(swayAngle);
 
         const growthRadiusFinal = baseSpread.max(float(0.0)).mul(this.uniforms.galaxy.radius);
-
         const growthX = cos(growthAngleFinal).mul(growthRadiusFinal);
         const growthZ = sin(growthAngleFinal).mul(growthRadiusFinal);
 
-        // 修复云层高度：让云层既有下垂感贴合树枝，又有向上升腾的体积感
-        const droopAmount = crownSpread.pow(float(1.5)).mul(float(0.3)); // 匹配主树的重力下垂
-        const volumetricYLift = hash(seed.add(14)).sub(0.5).mul(float(2.0)); // Y轴向上的体积膨胀
+        // 🌟 云层的上下膨胀感也受到 canopyCurve 约束
+        const droopAmount = crownSpread.mul(float(0.2));
+        const volumetricYLift = hash(seed.add(14)).sub(0.5).mul(float(3.0)).mul(canopyCurve);
 
         const growthY = rawTreeY
-          .sub(droopAmount.mul(this.uniforms.galaxy.radius)) // 跟着树枝下垂，防止分离
-          .add(volumetricYLift.mul(this.uniforms.galaxy.radius)) // 云层特有的蓬松厚度
-          .sub(this.uniforms.galaxy.radius.mul(1.5)); // 整体基础沉降对齐中心
+          .sub(droopAmount.mul(this.uniforms.galaxy.radius))
+          .add(volumetricYLift.mul(this.uniforms.galaxy.radius))
+          .sub(this.uniforms.galaxy.radius.mul(1.5));
 
         const growthPosition = vec3(growthX, growthY, growthZ);
 
@@ -704,7 +702,7 @@ export class GalaxySimulation {
 
       // Apply differential rotation (reduce during growth mode)
       const rotationSpeed = this.uniforms.compute.rotationSpeed.mul(
-        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(0.7)))
+        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(1.0)))
       );
       const rotatedPos = applyDifferentialRotation(
         position,
@@ -753,19 +751,25 @@ export class GalaxySimulation {
       const growthActive = this.uniforms.compute.growthModeActive;
       const growthProg = this.uniforms.compute.growthProgress;
 
-      const smoothProgress = pow(growthProg, float(0.7));
+      // 🌟 只缩放云层的 X 和 Z，保留 Y 轴高度
+      const spreadScale = this.uniforms.compute.handSpread;
+      const scaledGrowthTarget = vec3(
+        growthTargetPos.x.mul(spreadScale),
+        growthTargetPos.y,
+        growthTargetPos.z.mul(spreadScale)
+      );
 
-      // 过渡力：当前位置 → 螺旋植物目标位置（云粒子效果更强）
-      const transitionForce = growthTargetPos.sub(position).mul(smoothProgress.mul(9.0)).mul(this.uniforms.compute.deltaTime);
+      const smoothProgress = pow(growthProg, float(0.7));
+      const transitionForce = scaledGrowthTarget.sub(position).mul(smoothProgress.mul(9.0)).mul(this.uniforms.compute.deltaTime);
       position.addAssign(transitionForce.mul(growthActive));
 
-      // 生长过程中的额外旋转
-      const growthRotationSpeed = float(0.5).mul(growthActive).mul(smoothProgress);
+      // 生长过程中的额外旋转（树长满后自动归零）
+      const growthRotationSpeed = float(0.5).mul(growthActive).mul(float(1.0).sub(growthProg));
       const growthRotatedPos = applyDifferentialRotation(position, growthRotationSpeed, this.uniforms.compute.deltaTime);
-      position.assign(mix(position, growthRotatedPos, growthActive.mul(0.6)));
+      position.assign(mix(position, growthRotatedPos, growthActive.mul(float(1.0).sub(growthProg))));
 
       // Apply spring force (weaker than stars for more fluid movement)
-      const springTarget = mix(rotatedOriginal, growthTargetPos, growthActive.mul(growthProg));
+      const springTarget = mix(rotatedOriginal, scaledGrowthTarget, growthActive.mul(growthProg));
       const springStrength = float(1.0)
         .sub(this.uniforms.compute.handsTogetherActive.mul(0.7))
         .sub(growthActive.mul(growthProg.mul(1.5)));
@@ -871,46 +875,37 @@ export class GalaxySimulation {
       // Leaves concentrate at mid-to-upper branches, forming volumetric clumps
       const growthSeed = hash(seed.add(10));
 
-      // 1. Leaf height distribution (biased toward top)
-      const treeHeightRatio = float(0.4).add(growthSeed.pow(float(1.2)).mul(0.6));
+      // 🌟 树叶倾向于聚集在中上部 (使用 pow(0.8) 稍微降低重心)
+      const treeHeightRatio = float(0.4).add(growthSeed.pow(float(0.8)).mul(0.6));
       const treeY = treeHeightRatio.mul(this.uniforms.galaxy.radius.mul(3.5));
 
-      // 2. Canopy spread (matches main tree branch math)
-      const canopyFactor = smoothstep(float(0.4), float(0.8), treeHeightRatio);
-      const canopyTopDrop = smoothstep(float(0.8), float(1.0), treeHeightRatio).mul(0.3);
-      const crownSpread = canopyFactor.sub(canopyTopDrop).mul(float(3.5));
+      // 🌟 完美抛物线穹顶
+      const canopyFactor = smoothstep(float(0.4), float(1.0), treeHeightRatio);
+      const canopyCurve = float(1.0).sub(pow(canopyFactor.mul(2.0).sub(1.0), float(2.0)));
+      const crownSpread = canopyCurve.mul(float(5.5));
 
-      // Branch angle (matches main tree)
       const branchArmIndex = hash(seed.add(11)).mul(this.uniforms.galaxy.armCount.mul(3.0)).floor();
       const branchBaseAngle = branchArmIndex.mul(6.28318).div(this.uniforms.galaxy.armCount.mul(3.0));
 
-      // 3. Leaf clumping effect - high-frequency sine to create cauliflower-like clusters
-      const clumpNoise = sin(branchBaseAngle.mul(15.0)).mul(sin(treeHeightRatio.mul(25.0))).mul(0.6).mul(canopyFactor);
+      // 团簇感 (受 canopyCurve 约束)
+      const clumpNoise = sin(branchBaseAngle.mul(15.0)).mul(sin(treeHeightRatio.mul(25.0))).mul(float(1.2)).mul(canopyCurve);
 
-      // Spiral twist (matches main tree)
       const growthSpiralAngle = treeHeightRatio.pow(float(1.5)).mul(6.28318).mul(float(1.5));
-
-      // Sway angle (leaves are lightest, sway the most)
       const swayAngle = hash(seed.add(12)).sub(0.5).mul(1.2).mul(canopyFactor);
       const growthAngleFinal = branchBaseAngle.add(growthSpiralAngle).add(swayAngle);
 
-      // 4. Volumetric offset - leaves need 3D "ball-like" volume around branches
-      const leafVolumeX = hash(seed.add(20)).sub(0.5).mul(float(1.8)).mul(canopyFactor);
-      // Y offset with slight downward droop for natural leaf hang
-      const leafVolumeY = hash(seed.add(21)).sub(0.5).mul(float(1.5)).sub(float(0.2)).mul(canopyFactor);
-      const leafVolumeZ = hash(seed.add(22)).sub(0.5).mul(float(1.8)).mul(canopyFactor);
+      // 🌟 树叶特有的 3D "云团" 体积 (全部乘以 canopyCurve)
+      const leafVolumeX = hash(seed.add(20)).sub(0.5).mul(float(2.0)).mul(canopyCurve);
+      const leafVolumeY = hash(seed.add(21)).sub(0.5).mul(float(2.5)).mul(canopyCurve);
+      const leafVolumeZ = hash(seed.add(22)).sub(0.5).mul(float(2.0)).mul(canopyCurve);
 
-      // Gravity droop (follows main branch droop curve)
-      const gravityDroop = crownSpread.pow(float(1.5)).mul(0.2).mul(canopyFactor);
+      const gravityDroop = crownSpread.mul(float(0.2));
 
-      // Final radius: base spread + clump noise + X volume expansion
       const growthRadiusFinal = crownSpread.add(clumpNoise).add(leafVolumeX).max(float(0.0)).mul(this.uniforms.galaxy.radius);
 
-      // Final coordinates (add Z volume thickness)
       const growthX = cos(growthAngleFinal).mul(growthRadiusFinal);
       const growthZ = sin(growthAngleFinal).mul(growthRadiusFinal).add(leafVolumeZ.mul(this.uniforms.galaxy.radius));
 
-      // Y: base height - shift - branch droop + leaf volumetric Y spread
       const growthY = treeY
         .sub(this.uniforms.galaxy.radius.mul(1.5))
         .sub(gravityDroop.mul(this.uniforms.galaxy.radius))
@@ -939,7 +934,7 @@ export class GalaxySimulation {
 
       // Apply differential rotation (reduce during growth mode)
       const rotationSpeed = this.uniforms.compute.rotationSpeed.mul(
-        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(0.7)))
+        float(1.0).sub(this.uniforms.compute.growthModeActive.mul(this.uniforms.compute.growthProgress.mul(1.0)))
       );
       const rotatedPos = applyDifferentialRotation(position, rotationSpeed, this.uniforms.compute.deltaTime);
       position.assign(rotatedPos);
@@ -972,17 +967,25 @@ export class GalaxySimulation {
       // ---- Growth mode: transition to leaf canopy shape ----
       const growthActive = this.uniforms.compute.growthModeActive;
       const growthProg = this.uniforms.compute.growthProgress;
-      const smoothProgress = pow(growthProg, float(0.7));
 
-      const transitionForce = growthTargetPos.sub(position).mul(smoothProgress.mul(7.0)).mul(this.uniforms.compute.deltaTime);
+      // 🌟 只缩放树叶的 X 和 Z，保留 Y 轴高度
+      const spreadScale = this.uniforms.compute.handSpread;
+      const scaledGrowthTarget = vec3(
+        growthTargetPos.x.mul(spreadScale),
+        growthTargetPos.y,
+        growthTargetPos.z.mul(spreadScale)
+      );
+
+      const smoothProgress = pow(growthProg, float(0.7));
+      const transitionForce = scaledGrowthTarget.sub(position).mul(smoothProgress.mul(7.0)).mul(this.uniforms.compute.deltaTime);
       position.addAssign(transitionForce.mul(growthActive));
 
-      const growthRotationSpeed = float(0.6).mul(growthActive).mul(smoothProgress);
+      const growthRotationSpeed = float(0.6).mul(growthActive).mul(float(1.0).sub(growthProg));
       const growthRotatedPos = applyDifferentialRotation(position, growthRotationSpeed, this.uniforms.compute.deltaTime);
-      position.assign(mix(position, growthRotatedPos, growthActive.mul(0.4)));
+      position.assign(mix(position, growthRotatedPos, growthActive.mul(float(1.0).sub(growthProg))));
 
       // Spring force (weaker for delicate leaf movement)
-      const springTarget = mix(rotatedOriginal, growthTargetPos, growthActive.mul(growthProg));
+      const springTarget = mix(rotatedOriginal, scaledGrowthTarget, growthActive.mul(growthProg));
       const springStrength = float(0.8)
         .sub(this.uniforms.compute.handsTogetherActive.mul(0.5))
         .sub(growthActive.mul(growthProg.mul(1.2)));
@@ -1102,6 +1105,8 @@ export class GalaxySimulation {
    * Updates hands together state from gesture detection
    */
   updateHandsTogether(active, center) {
+    // 树锁定后不再响应凝聚手势，避免吸引力与树形态打架
+    if (this.isTreeLocked) return;
     this.uniforms.compute.handsTogetherActive.value = active ? 1.0 : 0.0;
     this.uniforms.compute.handsCenter.value.set(center.x, center.y, center.z);
   }
@@ -1135,50 +1140,31 @@ export class GalaxySimulation {
     this.uniforms.compute.mouseActive.value = mousePressed ? 1.0 : 0.0;
 
     // ---- Growth mode detection ----
-    // 检测双手合拢持续时间，触发生长模式
     const handsActive = this.uniforms.compute.handsTogetherActive.value > 0.5;
 
-    if (handsActive && !this.growthMode) {
-      // 累积聚集程度（基于时间）
-      this.lastGatheringLevel += deltaTime * 0.8; // 加快累积速度（每秒增加 0.8）
-
-      // 当聚集程度达到阈值时，触发生长模式
+    // 触发检测（锁定后不再重复触发）
+    if (handsActive && !this.growthMode && !this.isTreeLocked) {
+      this.lastGatheringLevel += deltaTime * 1.0; // ~2 秒蓄力
       if (this.lastGatheringLevel >= this.gatheringThreshold) {
         this.growthMode = true;
         this.growthProgress = 0.0;
         this.uniforms.compute.growthModeActive.value = 1.0;
-        console.log('🌱 Growth mode activated!'); // 调试日志
+        this.isTreeLocked = true;
+        console.log('🌱 Tree locked! One-shot growth initiated.');
       }
-    } else if (!handsActive) {
-      // 双手分开时，重置聚集程度
-      this.lastGatheringLevel = Math.max(0, this.lastGatheringLevel - deltaTime * 0.5); // 缓慢衰减
-
-      // 如果生长进度未完成，立即停止生长模式
-      if (this.growthMode && this.growthProgress < 1.0) {
-        this.growthMode = false;
-        this.growthProgress = 0.0;
-        this.uniforms.compute.growthModeActive.value = 0.0;
-        this.uniforms.compute.growthProgress.value = 0.0;
-      }
+    } else if (!handsActive && !this.isTreeLocked) {
+      this.lastGatheringLevel = Math.max(0, this.lastGatheringLevel - deltaTime * 0.5);
     }
 
-    // ---- Growth animation ----
+    // ---- 三阶段生长动画 (保持不变) ----
     if (this.growthMode) {
-      // 🌳 NEW: 三阶段生长动画
-      // 阶段 1: 萌芽 (0-30%) - 快速聚集成球，等待萌芽
-      // 阶段 2: 生长 (30-80%) - 从球体向上生长成树形
-      // 阶段 3: 绽放 (80-100%) - 树枝展开，树叶绽放
-
       let growthSpeed;
       if (this.growthProgress < 0.3) {
-        // 萌芽期：慢速聚集（等待能量积蓄）
-        growthSpeed = 0.15;
+        growthSpeed = 0.6;
       } else if (this.growthProgress < 0.8) {
-        // 生长期：快速向上生长
-        growthSpeed = 0.8;
+        growthSpeed = 1.2;
       } else {
-        // 绽放期：缓慢展开树枝
-        growthSpeed = 0.25;
+        growthSpeed = 0.6;
       }
 
       this.growthProgress += deltaTime * growthSpeed;
@@ -1189,10 +1175,9 @@ export class GalaxySimulation {
       if (this.growthProgress >= 1.0) {
         this.uniforms.compute.growthSpiralIntensity.value = 1.0;
       } else {
-        // 🌟 NEW: 绽放阶段螺旋强度更强
         const spiralIntensity = this.growthProgress < 0.8
           ? Math.pow(this.growthProgress, 1.0)
-          : Math.pow(this.growthProgress, 0.5); // 绽放时展开更大
+          : Math.pow(this.growthProgress, 0.5);
         this.uniforms.compute.growthSpiralIntensity.value = spiralIntensity;
       }
     }
