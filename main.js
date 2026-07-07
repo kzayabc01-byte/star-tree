@@ -31,11 +31,11 @@ const config = {
   cloudOpacity: 0.008,
   cloudTintColor: '#ffdace',
   leafCount: 15000,
-  // Growth mode configuration (金橙色宇宙树配色)
-  growthCoreColor: '#ffd700',    // 金色核心（主干）
-  growthArmColor: '#ff8c00',     // 橙色旋臂（主分支）
-  growthTipColor: '#ffb84d',     // 金橙色尖端（树叶/花朵）
-  gatheringThreshold: 0.25       // 聚集触发阈值（更低，更容易触发）
+  // Growth mode configuration (阿凡达光纤生命树配色)
+  growthCoreColor: '#00ffff',    // 青色/亮蓝（主干核心）
+  growthArmColor: '#0055ff',     // 深邃蓝（光纤旋臂）
+  growthTipColor: '#ffffff',     // 纯白发光点（树冠尖端）
+  gatheringThreshold: 2.0        // 聚集触发阈值（~2 秒凝聚）
 };
 
 // Scene setup
@@ -341,18 +341,23 @@ async function animate() {
   const deltaTime = Math.min((currentTime - lastFrameTime) / 1000, 0.033);
   lastFrameTime = currentTime;
 
-  // Feed gesture rotation into camera controller
-  if (gestures.handActive) {
+  // Feed gesture rotation into camera controller (树锁定后禁用，交还鼠标)
+  if (gestures.handActive && !galaxySimulation.isTreeLocked) {
     viewController.setExternalRotation(gestures.handRot.x, gestures.handRot.y);
   } else {
     viewController.clearExternalRotation();
   }
 
-  // 🌟 NEW: Smooth lerp for hand spread & depth (借鉴 gem4 的缓动算法)
-  currentHandSpread += (targetHandSpread - currentHandSpread) * 0.08;  // 8% 缓动
-  currentHandDepth += (targetHandDepth - currentHandDepth) * 0.08;    // 8% 缓动
+  // 🌟 NEW: Smooth lerp for hand spread & depth
+  if (!galaxySimulation.isTreeLocked) {
+    currentHandSpread += (targetHandSpread - currentHandSpread) * 0.08;
+    currentHandDepth += (targetHandDepth - currentHandDepth) * 0.08;
+  } else {
+    // 💡 树锁定后平滑归位到 0.6，保持凝聚紧凑的树形
+    currentHandSpread += (0.6 - currentHandSpread) * 0.08;
+    currentHandDepth += (1.0 - currentHandDepth) * 0.08;
+  }
 
-  // 更新 uniforms
   galaxySimulation.uniforms.compute.handSpread.value = currentHandSpread;
   galaxySimulation.uniforms.compute.handDepth.value = currentHandDepth;
 
@@ -368,17 +373,17 @@ async function animate() {
     let bloomStrength, bloomThreshold;
 
     if (growthProg < 0.3) {
-      // 萌芽期：微弱发光（积蓄能量）
-      bloomStrength = config.bloomStrength + growthProg * 0.15;
+      // 萌芽期：微弱发光
+      bloomStrength = config.bloomStrength + growthProg * 0.1;
       bloomThreshold = config.bloomThreshold;
     } else if (growthProg < 0.8) {
       // 生长期：逐渐增强
-      bloomStrength = config.bloomStrength + growthProg * 0.3;
-      bloomThreshold = config.bloomThreshold - growthProg * 0.1;
+      bloomStrength = config.bloomStrength + growthProg * 0.15;
+      bloomThreshold = config.bloomThreshold - growthProg * 0.05;
     } else {
-      // 绽放期：适度发光
-      bloomStrength = config.bloomStrength + 0.35;
-      bloomThreshold = config.bloomThreshold - 0.2;
+      // 绽放期：柔和定型
+      bloomStrength = config.bloomStrength + 0.1;
+      bloomThreshold = config.bloomThreshold - 0.05;
     }
 
     bloomPassNode.strength.value = bloomStrength;
