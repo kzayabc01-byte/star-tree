@@ -160,7 +160,6 @@ export class CameraController {
   /** Rebuild POIs after galaxy structure changes (arm count, radius, etc.). */
   regeneratePois() {
     this._generatePois();
-    this.poiIndex = Math.min(this.poiIndex, this.pois.length - 1);
     this._applyPoi();
   }
 
@@ -217,87 +216,37 @@ export class CameraController {
   /** Build POI list from current galaxy config. */
   _generatePois() {
     const R = this.config.galaxyRadius || 13;
-    const arms = this.config.armCount || 2;
 
-    const list = [];
+    this.pois = [
+      { name: '星系全景', target: {x:0,y:-2,z:0}, radius:22, theta:0, phi:0.882 },
+      { name: '星系核心', target: {x:0,y:0,z:0}, radius:8, theta:0, phi:0.7 },
+      { name: '俯瞰星系', target: {x:0,y:0,z:0}, radius:R*0.5, theta:0, phi:0.05 },
+      { name: '侧视星系', target: {x:0,y:0,z:0}, radius:R*1.2, theta:0, phi:Math.PI/2 },
+    ];
+  }
 
-    // 0 — Galaxy Overview (default, camera above & back)
-    list.push({
-      name: '星系全景',
-      target: { x: 0, y: -2, z: 0 },
-      radius: 22,
-      theta: 0,
-      phi: 0.882
-    });
-
-    // 1 — Galactic Core
-    list.push({
-      name: '星系核心',
-      target: { x: 0, y: 0, z: 0 },
-      radius: 8,
-      theta: 0,
-      phi: 0.7
-    });
-
-    // 2+ — Spiral arm viewpoints
-    for (let i = 0; i < arms; i++) {
-      const angle = (i / arms) * Math.PI * 2;
-      const tx = Math.cos(angle) * R * 0.55;
-      const tz = Math.sin(angle) * R * 0.55;
-      // camera position is offset outward from the arm tip
-      const cx = Math.cos(angle) * R * 0.75;
-      const cz = Math.sin(angle) * R * 0.75;
-      const dx = cx - tx;
-      const dz = cz - tz;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      list.push({
-        name: `旋臂 ${String.fromCharCode(65 + i)}`,
-        target: { x: tx, y: -1, z: tz },
-        radius: Math.sqrt(dist * dist + 5 * 5), // elevated above arm
-        theta: Math.atan2(dx, dz),
-        phi: Math.atan2(dist, 5)
-      });
-    }
-
-    // Bird's-eye view (top-down)
-    list.push({
-      name: '俯瞰星系',
-      target: { x: 0, y: 0, z: 0 },
-      radius: R * 0.5,
-      theta: 0,
-      phi: 0.05  // nearly straight down
-    });
-
-    // Edge-on view
-    list.push({
-      name: '侧视星系',
-      target: { x: 0, y: 0, z: 0 },
-      radius: R * 1.2,
-      theta: 0,
-      phi: Math.PI / 2  // at the equatorial plane
-    });
-
-    this.pois = list;
-    if (this.poiIndex >= list.length) this.poiIndex = 0;
+  /** Set initial camera to first POI (immediate, no lerp). */
+  _setInitialPoi() {
+    this._applyPoi(false);
   }
 
   /** Set _tTarget / _tTheta / _tPhi / _tRadius from current POI + view state. */
-  _applyPoi() {
+  _applyPoi(smooth = true) {
     const poi = this.pois[this.poiIndex];
     if (!poi) return;
 
-    this._tTarget.x = poi.target.x;
-    this._tTarget.y = poi.target.y;
-    this._tTarget.z = poi.target.z;
+    this._tTarget = { ...poi.target };
 
-    if (this.viewState === VIEW_STATE.FOCUS) {
-      // Close-up: tighter radius, keep current orbit angle if user was rotating
-      this._tRadius = Math.max(2.5, poi.radius * 0.35 * this._zoom);
-      // In focus mode keep user's current theta/phi for continuity
-    } else {
-      this._tRadius = poi.radius * this._zoom;
-      this._tTheta = poi.theta;
-      this._tPhi = poi.phi;
+    const baseRadius = this.viewState === VIEW_STATE.FOCUS ? poi.radius * 0.4 : poi.radius;
+    this._tRadius = Math.max(this._minRadius, Math.min(this._maxRadius, baseRadius * this._zoom));
+    this._tTheta = poi.theta;
+    this._tPhi = this.viewState === VIEW_STATE.FOCUS ? Math.max(0.2, poi.phi - 0.2) : poi.phi;
+
+    if (!smooth) {
+      this._target = { ...this._tTarget };
+      this._theta = this._tTheta;
+      this._phi = this._tPhi;
+      this._radius = this._tRadius;
     }
   }
 
@@ -375,6 +324,9 @@ export class CameraController {
   _onKeyDown(e) {
     // Ignore if user is typing in an input
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // 【核心修复】拦截长按重复触发，解决抽搐 Bug
+    if (e.repeat) return;
 
     switch (e.key) {
       case 'ArrowLeft':  case 'a': case 'A': this.previousPoi();  break;

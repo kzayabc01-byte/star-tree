@@ -154,9 +154,9 @@ export class GalaxySimulation {
         sparseStarColor: uniform(new THREE.Color(config.sparseStarColor || '#ffb380')),
         cloudTintColor: uniform(new THREE.Color(config.cloudTintColor || '#6ba8cc')),
         // Tree effect colors (阿凡达光纤生命树配色)
-        growthCoreColor: uniform(new THREE.Color('#00ffff')),   // 青色/亮蓝
-        growthArmColor: uniform(new THREE.Color('#0055ff')),    // 深邃蓝
-        growthTipColor: uniform(new THREE.Color('#ffffff')),    // 纯白发光点
+        growthCoreColor: uniform(new THREE.Color(config.growthCoreColor || '#00ffff')),
+        growthArmColor: uniform(new THREE.Color(config.growthArmColor || '#0055ff')),
+        growthTipColor: uniform(new THREE.Color(config.growthTipColor || '#ffffff')),
         // Leaf effect colors
         leafColorDark: uniform(new THREE.Color('#001133')),     // 极暗夜空蓝
         leafColorLight: uniform(new THREE.Color('#00e5ff')),    // 明亮荧光青
@@ -1081,6 +1081,13 @@ export class GalaxySimulation {
       this.uniforms.visual.sparseStarColor.value.set(configUpdate.sparseStarColor);
     if (configUpdate.cloudTintColor !== undefined)
       this.uniforms.visual.cloudTintColor.value.set(configUpdate.cloudTintColor);
+    // Tree growth colors
+    if (configUpdate.growthCoreColor !== undefined)
+      this.uniforms.visual.growthCoreColor.value.set(configUpdate.growthCoreColor);
+    if (configUpdate.growthArmColor !== undefined)
+      this.uniforms.visual.growthArmColor.value.set(configUpdate.growthArmColor);
+    if (configUpdate.growthTipColor !== undefined)
+      this.uniforms.visual.growthTipColor.value.set(configUpdate.growthTipColor);
 
     // Leaf visual
     if (configUpdate.leafColorDark !== undefined)
@@ -1109,6 +1116,20 @@ export class GalaxySimulation {
     if (this.isTreeLocked) return;
     this.uniforms.compute.handsTogetherActive.value = active ? 1.0 : 0.0;
     this.uniforms.compute.handsCenter.value.set(center.x, center.y, center.z);
+  }
+
+  /**
+   * Keyboard-triggered: starts growth mode immediately (no gesture needed).
+   * Idempotent once tree is locked.
+   */
+  startGrowth() {
+    if (this.isTreeLocked) return;
+    this.growthMode = true;
+    this.growthProgress = 0.0;
+    this.uniforms.compute.growthModeActive.value = 1.0;
+    this.uniforms.compute.handsTogetherActive.value = 0.0;
+    this.isTreeLocked = true;
+    console.log('🌱 Tree growth triggered via keyboard (T).');
   }
 
   /**

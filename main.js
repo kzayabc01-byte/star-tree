@@ -19,8 +19,8 @@ const config = {
   armCount: 2,
   armWidth: 2.25,
   randomness: 1.8,
-  particleSize: 0.04,
-  starBrightness: 0.15,
+  particleSize: 0.06,
+  starBrightness: 0.6,
   denseStarColor: '#1885ff',
   sparseStarColor: '#ffb28a',
   bloomStrength: 0.15,
@@ -35,8 +35,12 @@ const config = {
   growthCoreColor: '#00ffff',    // 青色/亮蓝（主干核心）
   growthArmColor: '#0055ff',     // 深邃蓝（光纤旋臂）
   growthTipColor: '#ffffff',     // 纯白发光点（树冠尖端）
-  gatheringThreshold: 2.0        // 聚集触发阈值（~2 秒凝聚）
+  gatheringThreshold: 2.0,        // 聚集触发阈值（~2 秒凝聚）
+  colorTheme: 'classic'           // 色彩风格预设
 };
+
+// ✌️ 比耶快速自转全局状态
+let isFastRotating = false;
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -77,6 +81,37 @@ let targetHandSpread = 1.0;
 let currentHandSpread = 1.0;
 let targetHandDepth = 1.0;
 let currentHandDepth = 1.0;
+
+// ==========================================
+// 屏幕中央的醒目状态提示 UI
+// ==========================================
+const statusDiv = document.createElement('div');
+statusDiv.style.cssText = `
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 28px;
+  font-weight: bold;
+  font-family: sans-serif;
+  text-shadow: 0 0 15px rgba(0, 255, 255, 0.9), 0 0 30px rgba(0, 255, 255, 0.6);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+  z-index: 9999;
+`;
+document.body.appendChild(statusDiv);
+
+let statusTimer = null;
+function showStatus(text, duration = 2500) {
+  statusDiv.innerText = text;
+  statusDiv.style.opacity = 1;
+  if (statusTimer) clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
+    statusDiv.style.opacity = 0;
+  }, duration);
+}
 
 window.addEventListener('mousedown', () => mousePressed = true);
 window.addEventListener('mouseup', () => mousePressed = false);
@@ -166,46 +201,42 @@ createStarryBackground(scene);
 // ---- Gesture tracking ----
 const videoEl = document.getElementById('webcam');
 const gestures = new GalaxyGestures({
-  onStatus(msg) {
-    document.getElementById('status').textContent = msg;
+  onMode: (mode) => {
+    if (mode === 'gesture') showStatus('🖐️ 已捕捉到手势控制', 2000);
   },
-  onMode(mode) {
-    const indicator = document.getElementById('mode-indicator');
-    if (mode === 'gesture') {
-      indicator.textContent = '🖐 手势模式';
-      indicator.className = 'gesture';
-    } else {
-      indicator.textContent = '🖱 鼠标模式';
-      indicator.className = 'mouse';
-    }
+  onStatus: (msg) => {
+    showStatus(msg, 2000);
   },
-  onSwipeLeft() {
-    viewController.previousPoi();
-  },
-  onSwipeRight() {
-    viewController.nextPoi();
-  },
-  onFist() {
-    viewController.toggleView();
-  },
-  onHandsTogether(active, center) {
-    // 更新星云聚集状态
-    galaxySimulation.updateHandsTogether(active, center);
-  },
-  // 🌟 NEW: Hand spread control (借鉴 gem4)
-  onHandSpread(spread) {
-    // 平滑过渡：target → current
+  onHandSpread: (spread) => {
     targetHandSpread = spread;
   },
-  // 🌟 NEW: Hand depth control (借鉴 gem4)
-  onHandDepth(depth) {
-    // 平滑过渡：target → current
+  onHandDepth: (depth) => {
     targetHandDepth = depth;
   },
-  onFallback(reason) {
-    document.getElementById('status').textContent = reason + ' — 🖱 鼠标模式';
-    document.getElementById('mode-indicator').textContent = '🖱 鼠标模式';
-    document.getElementById('mode-indicator').className = 'mouse';
+  onSwipeLeft: () => {
+    viewController.previousPoi();
+    showStatus('👋 视角向左切换');
+  },
+  onSwipeRight: () => {
+    viewController.nextPoi();
+    showStatus('👋 视角向右切换');
+  },
+  onFist: () => {
+    viewController.toggleView();
+    showStatus('✊ 切换: 全景 / 特写');
+  },
+  onHandsTogether: (isActive, center) => {
+    galaxySimulation.updateHandsTogether(isActive, center);
+  },
+  onVPose: (isActive) => {
+    isFastRotating = isActive;
+    if (isActive) {
+      // 当比耶时，确保不在树形态，让它展现纯净的星系旋转
+      galaxySimulation.isTreeLocked = false;
+    }
+  },
+  onFallback: (reason) => {
+    showStatus('⚠️ 鼠标模式 (' + reason + ')');
   }
 });
 
@@ -273,6 +304,65 @@ function setupBloom() {
   postProcessing.outputNode = scenePassColor.add(bloomPassNode);
 }
 
+// ==========================================
+// 色彩风格预设
+// ==========================================
+const THEMES = {
+  classic: {
+    denseStarColor: '#1885ff', sparseStarColor: '#ffb28a',
+    growthCoreColor: '#00ffff', growthArmColor: '#0055ff', growthTipColor: '#ffffff',
+    cloudTintColor: '#ffdace', starBrightness: 0.6, bloomStrength: 0.15
+  },
+  ice: {
+    denseStarColor: '#00bfff', sparseStarColor: '#87ceeb',
+    growthCoreColor: '#b0e0e6', growthArmColor: '#4169e1', growthTipColor: '#f0f8ff',
+    cloudTintColor: '#e0f0ff', starBrightness: 0.7, bloomStrength: 0.2
+  },
+  cyber: {
+    denseStarColor: '#ff00ff', sparseStarColor: '#00ffff',
+    growthCoreColor: '#ff1493', growthArmColor: '#00ff7f', growthTipColor: '#ffff00',
+    cloudTintColor: '#ff6ec7', starBrightness: 0.8, bloomStrength: 0.35
+  },
+  golden: {
+    denseStarColor: '#ff8c00', sparseStarColor: '#ffd700',
+    growthCoreColor: '#ff6600', growthArmColor: '#cc5500', growthTipColor: '#fff8dc',
+    cloudTintColor: '#ffe4b5', starBrightness: 0.5, bloomStrength: 0.1
+  }
+};
+
+function applyTheme(themeName) {
+  const t = THEMES[themeName];
+  if (!t) return;
+  Object.assign(config, t);
+  config.colorTheme = themeName;
+  galaxySimulation.updateUniforms(t);
+  if (bloomPassNode) {
+    bloomPassNode.strength.value = t.bloomStrength;
+  }
+  showStatus(`🎨 切换至「${['深空经典','冰冷深蓝','赛博霓虹','暗金余晖'][['classic','ice','cyber','golden'].indexOf(themeName)]}」`, 2000);
+}
+
+// ==========================================
+// 随机重构星系
+// ==========================================
+function randomizeGalaxy() {
+  config.armCount = Math.floor(Math.random() * 3) + 1;     // 1-3
+  config.galaxyRadius = 8 + Math.random() * 10;             // 8-18
+  config.spiralTightness = 1 + Math.random() * 3;           // 1-4
+  config.randomness = 0.5 + Math.random() * 3;              // 0.5-3.5
+  config.rotationSpeed = 0.05 + Math.random() * 0.3;        // 0.05-0.35
+  config.starCount = Math.round(200000 + Math.random() * 600000); // 200k-800k
+
+  galaxySimulation.updateUniforms(config);
+  galaxySimulation.createClouds();
+  galaxySimulation.createLeaves();
+  galaxySimulation.updateStarCount(config.starCount);
+  galaxySimulation.regenerate();
+  viewController.regeneratePois();
+  document.getElementById('star-count').textContent = config.starCount.toLocaleString();
+  showStatus('🎲 星系已随机重构!', 2500);
+}
+
 // Create UI with callbacks
 const ui = new GalaxyUI(config, {
   onUniformChange: (key, value) => galaxySimulation.updateUniforms({ [key]: value }),
@@ -308,7 +398,11 @@ const ui = new GalaxyUI(config, {
     galaxySimulation.createLeaves();
     galaxySimulation.regenerate();
     viewController.regeneratePois();
-  }
+  },
+
+  onThemeChange: (theme) => applyTheme(theme),
+
+  onRandomizeGalaxy: () => randomizeGalaxy()
 });
 
 // FPS counter
@@ -341,47 +435,49 @@ async function animate() {
   const deltaTime = Math.min((currentTime - lastFrameTime) / 1000, 0.033);
   lastFrameTime = currentTime;
 
-  // Feed gesture rotation into camera controller (树锁定后禁用，交还鼠标)
-  if (gestures.handActive && !galaxySimulation.isTreeLocked) {
+  // 【新增】✌️ 比耶快速自转：持续每帧增加相机的水平旋转角度
+  if (isFastRotating) {
+    viewController._tTheta -= 0.03;
+  }
+
+  // 【核心修复】：如果手势处于互斥锁状态（isPoseLocked），彻底停止相机的外部旋转干扰！
+  if (gestures.handActive && !gestures.isPoseLocked && !galaxySimulation.isTreeLocked) {
     viewController.setExternalRotation(gestures.handRot.x, gestures.handRot.y);
   } else {
     viewController.clearExternalRotation();
   }
 
-  // 🌟 NEW: Smooth lerp for hand spread & depth
-  if (!galaxySimulation.isTreeLocked) {
+  // 处理手掌张开与深度的平滑过渡（同样受互斥锁和树形模式限制）
+  if (!galaxySimulation.isTreeLocked && !gestures.isPoseLocked) {
     currentHandSpread += (targetHandSpread - currentHandSpread) * 0.08;
     currentHandDepth += (targetHandDepth - currentHandDepth) * 0.08;
   } else {
-    // 💡 树锁定后平滑归位到 0.6，保持凝聚紧凑的树形
+    // 树锁定或结印状态下，平滑归位到安全默认值，防止镜头乱飙
     currentHandSpread += (0.6 - currentHandSpread) * 0.08;
     currentHandDepth += (1.0 - currentHandDepth) * 0.08;
   }
 
-  galaxySimulation.uniforms.compute.handSpread.value = currentHandSpread;
-  galaxySimulation.uniforms.compute.handDepth.value = currentHandDepth;
+  // 传递给着色器
+  if (galaxySimulation.uniforms) {
+    galaxySimulation.uniforms.compute.handSpread.value = currentHandSpread;
+    galaxySimulation.uniforms.compute.handDepth.value = currentHandDepth;
+  }
 
   // Update camera (smooth transitions, orbit, keyboard nav)
   viewController.update();
 
   // Dynamic bloom adjustment for growth mode
-  // 宇宙树三阶段动态发光效果（降低强度避免过曝）
   if (galaxySimulation.growthMode && bloomPassNode) {
     const growthProg = galaxySimulation.growthProgress;
-
-    // 三阶段不同的发光效果
     let bloomStrength, bloomThreshold;
 
     if (growthProg < 0.3) {
-      // 萌芽期：微弱发光
       bloomStrength = config.bloomStrength + growthProg * 0.1;
       bloomThreshold = config.bloomThreshold;
     } else if (growthProg < 0.8) {
-      // 生长期：逐渐增强
       bloomStrength = config.bloomStrength + growthProg * 0.15;
       bloomThreshold = config.bloomThreshold - growthProg * 0.05;
     } else {
-      // 绽放期：柔和定型
       bloomStrength = config.bloomStrength + 0.1;
       bloomThreshold = config.bloomThreshold - 0.05;
     }
@@ -389,7 +485,6 @@ async function animate() {
     bloomPassNode.strength.value = bloomStrength;
     bloomPassNode.threshold.value = bloomThreshold;
   } else if (bloomPassNode) {
-    // 恢复默认 bloom
     bloomPassNode.strength.value = config.bloomStrength;
     bloomPassNode.threshold.value = config.bloomThreshold;
   }

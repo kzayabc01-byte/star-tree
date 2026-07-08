@@ -1,74 +1,44 @@
 /**
- * Galaxy Gestures - MediaPipe Hand Tracking Module
- *
- * Provides hand gesture control for the galaxy simulation:
- * - Hand position  → camera orbit rotation
- * - Wave left/right → switch point of interest
- * - Fist gesture    → toggle galaxy / focus view mode
- * - Auto-fallback to mouse mode on timeout or error (5s)
- *
- * Requires MediaPipe Hands + Camera utils loaded via CDN in index.html.
- * Globals used: window.Hands, window.Camera
+ * Galaxy Gestures - 优化版 (包含互斥锁、防抖与宽容判定)
  */
 
 export class GalaxyGestures {
-  /**
-   * @param {Object} callbacks
-   * @param {(msg:string)=>void} [callbacks.onStatus]    - status message update
-   * @param {(mode:string)=>void} [callbacks.onMode]     - 'gesture' | 'mouse'
-   * @param {()=>void}            [callbacks.onSwipeLeft]  - wave left detected
-   * @param {()=>void}            [callbacks.onSwipeRight] - wave right detected
-   * @param {()=>void}            [callbacks.onFist]       - fist gesture detected
- * @param {(msg:string)=>void} [callbacks.onFallback]  - fallback to mouse, with reason
- * @param {(active:boolean, center:{x:number,y:number,z:number})=>void} [callbacks.onHandsTogether] - hands together gesture
- * @param {(spread:number)=>void} [callbacks.onHandSpread] - hand spread (five fingers open/close)
- * @param {(depth:number)=>void} [callbacks.onHandDepth] - hand depth (palm width for zoom)
- * @param {(active:boolean)=>void} [callbacks.onSwordPose] - two-finger sword gesture
-   */
   constructor(callbacks = {}) {
     this.cb = callbacks;
-
-    // Public state
     this.handActive = false;
     this.handRot = { x: 0, y: 0 };
-    this.handSpread = 1.0;  // 五指张开程度（控制扩散）
-    this.handDepth = 1.0;   // 手掌深度（控制缩放）
+    this.handSpread = 1.0;
+    this.handDepth = 1.0;
     this.initialized = false;
     this.camera = null;
 
-    // Internal swipe detection
+    // ---- 核心优化：防抖与缓冲计时器 ----
     this._lastX = null;
     this._lastSw = 0;
 
-    // Internal fist detection
+    // 握拳状态
     this._fistOn = false;
-    this._lastFist = 0;
+    this._lastFistTime = 0;
 
-    // Hands together detection
+    // 双手合十状态
     this.handsTogether = false;
     this.handsCenter = { x: 0, y: 0, z: 0 };
-    this._lastHandsTogether = false;
+    this._handsTogetherLastSeen = 0; // 缓冲防断
 
-    // Sword pose detection
-    this.swordPoseActive = false;
+    // 互斥锁：当处于施法状态时，锁定相机的缩放和旋转
+    this.isPoseLocked = false;
+
+    // ✌️ 比耶状态
+    this.vPoseActive = false;
+    this._vPoseLastSeen = 0;
   }
 
-  /**
-   * Start the webcam + MediaPipe Hands pipeline.
-   * @param {HTMLVideoElement} videoElement - already in DOM, autoplay playsinline
-   * @returns {Promise<boolean>} true if started successfully
-   */
   async init(videoElement) {
     if (this.initialized) return true;
-
-    // Guard: MediaPipe globals not loaded
     if (typeof window.Hands === 'undefined' || typeof window.Camera === 'undefined') {
       this._fallback('手势库未加载');
       return false;
     }
-
-    const Hands = window.Hands;
-    const Camera = window.Camera;
 
     let ok = false;
     const timeoutId = setTimeout(() => {
@@ -76,267 +46,218 @@ export class GalaxyGestures {
     }, 5000);
 
     try {
-      const hands = new Hands({
+      const hands = new window.Hands({
         locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
       });
-
       hands.setOptions({
-        maxNumHands: 2,  // 改为双手追踪以支持双手合拢手势
+        maxNumHands: 2,
         modelComplexity: 1,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
-
       hands.onResults((results) => this._onResults(results));
 
-      this.camera = new Camera(videoElement, {
-        onFrame: async () => {
-          await hands.send({ image: videoElement });
-        },
-        width: 640,
-        height: 480
+      this.camera = new window.Camera(videoElement, {
+        onFrame: async () => { await hands.send({ image: videoElement }); },
+        width: 640, height: 480
       });
 
       await this.camera.start();
       clearTimeout(timeoutId);
       ok = true;
       this.initialized = true;
-
-      if (this.cb.onStatus) this.cb.onStatus('就绪 (请伸出手掌)');
       return true;
     } catch (e) {
       clearTimeout(timeoutId);
-      console.warn('Gesture init error:', e);
       this._fallback('摄像头不可用');
       return false;
     }
   }
 
-  // ---- internals ----
-
-  _fallback(reason) {
-    this.handActive = false;
-    if (this.cb.onFallback) this.cb.onFallback(reason);
-    if (this.cb.onMode) this.cb.onMode('mouse');
-  }
-
   _onResults(results) {
+    const now = performance.now();
+
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       if (this.handActive) {
         this.handActive = false;
         this.handsTogether = false;
-        if (this.cb.onMode) this.cb.onMode('mouse');
-        // 停止星云聚集
-        if (this.cb.onHandsTogether) {
-          this.cb.onHandsTogether(false, { x: 0, y: 0, z: 0 });
-        }
-        // 重置 spread 和 depth
-        if (this.cb.onHandSpread) this.cb.onHandSpread(1.0);
-        if (this.cb.onHandDepth) this.cb.onHandDepth(1.0);
-        if (this.swordPoseActive && this.cb.onSwordPose) this.cb.onSwordPose(false);
-        this.swordPoseActive = false;
+        this.isPoseLocked = false;
+        this.cb.onMode?.('mouse');
+        this.cb.onHandsTogether?.(false, { x: 0, y: 0, z: 0 });
       }
       return;
     }
 
     if (!this.handActive) {
       this.handActive = true;
-      if (this.cb.onMode) this.cb.onMode('gesture');
+      this.cb.onMode?.('gesture');
     }
 
-    const now = performance.now();
     const numHands = results.multiHandLandmarks.length;
 
-    // ---- 双手合拢检测 ----
+    // ==========================================
+    // 1. 双手合十检测 (星云聚集) - 加入防抖与互斥锁
+    // ==========================================
     if (numHands === 2) {
-      const lm1 = results.multiHandLandmarks[0];
-      const lm2 = results.multiHandLandmarks[1];
+      const [lm1, lm2] = results.multiHandLandmarks;
+      const h1c = { x: (lm1[0].x+lm1[9].x)/2, y: (lm1[0].y+lm1[9].y)/2, z: (lm1[0].z+lm1[9].z)/2 };
+      const h2c = { x: (lm2[0].x+lm2[9].x)/2, y: (lm2[0].y+lm2[9].y)/2, z: (lm2[0].z+lm2[9].z)/2 };
+      const dist = Math.hypot(h1c.x-h2c.x, h1c.y-h2c.y, h1c.z-h2c.z);
 
-      // 计算两手的中心点（使用手腕和中指MCP的平均）
-      const hand1Center = {
-        x: (lm1[0].x + lm1[9].x) / 2,
-        y: (lm1[0].y + lm1[9].y) / 2,
-        z: (lm1[0].z + lm1[9].z) / 2
-      };
-      const hand2Center = {
-        x: (lm2[0].x + lm2[9].x) / 2,
-        y: (lm2[0].y + lm2[9].y) / 2,
-        z: (lm2[0].z + lm2[9].z) / 2
-      };
+      const isCurrentlyTogether = dist < 0.20; // 放宽判定距离
 
-      // 计算双手之间的距离
-      const dx = hand1Center.x - hand2Center.x;
-      const dy = hand1Center.y - hand2Center.y;
-      const dz = hand1Center.z - hand2Center.z;
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-      // 合拢阈值：距离小于 0.18（两手靠近）- 调整为更稳定
-      const togetherThreshold = 0.18;
-      const isHandsTogether = distance < togetherThreshold;
-
-      // 计算双手合拢的中心点（转换到星系坐标系）
-      if (isHandsTogether) {
-        const centerX = ((hand1Center.x + hand2Center.x) / 2 - 0.5) * 2;  // [-1, 1] -> [-20, 20]
-        const centerY = ((hand1Center.y + hand2Center.y) / 2 - 0.5) * 1.5; // [-1, 1] -> [-15, 15]
-        const centerZ = ((hand1Center.z + hand2Center.z) / 2) * 10;        // z 值较小，放大到合理范围
-
-        this.handsCenter = { x: centerX, y: centerY, z: centerZ };
-        this.handsTogether = true;
-
-        // 触发双手合拢回调（星云聚集）
-        if (this.cb.onHandsTogether && !this._lastHandsTogether) {
-          this.cb.onHandsTogether(true, this.handsCenter);
-          if (this.cb.onStatus) this.cb.onStatus('双手合拢 - 星云聚集');
+      if (isCurrentlyTogether) {
+        this._handsTogetherLastSeen = now;
+        if (!this.handsTogether) {
+          this.handsTogether = true;
+          this.isPoseLocked = true; // 开启互斥锁
+          this.cb.onStatus?.('🔒 双手合十锁定 - 停止晃动');
         }
+        this.handsCenter = {
+          x: ((h1c.x+h2c.x)/2 - 0.5) * 2,
+          y: ((h1c.y+h2c.y)/2 - 0.5) * 1.5,
+          z: ((h1c.z+h2c.z)/2) * 10
+        };
+        this.cb.onHandsTogether?.(true, this.handsCenter);
       } else {
-        this.handsTogether = false;
-        if (this.cb.onHandsTogether && this._lastHandsTogether) {
-          this.cb.onHandsTogether(false, { x: 0, y: 0, z: 0 });
-          if (this.cb.onStatus) this.cb.onStatus('就绪 (请伸出手掌)');
+        // 缓冲 400ms，防止手抖突然断开
+        if (this.handsTogether && now - this._handsTogetherLastSeen > 400) {
+          this.handsTogether = false;
+          this.isPoseLocked = false; // 解除互斥锁
+          this.cb.onHandsTogether?.(false, { x: 0, y: 0, z: 0 });
+          this.cb.onStatus?.('🔓 解除锁定');
         }
       }
-      this._lastHandsTogether = isHandsTogether;
 
-      // 双手模式下不处理单手手势（挥手、握拳）
-      if (this.swordPoseActive && this.cb.onSwordPose) this.cb.onSwordPose(false);
-      this.swordPoseActive = false;
       return;
     }
 
-    // ---- 单手模式：手势控制 ----
+    // ==========================================
+    // 2. 单手模式
+    // ==========================================
     const lm = results.multiHandLandmarks[0];
 
-    // ---- hand position → rotation ----
-    // Average of wrist (0) and middle-finger MCP (9) gives stable hand center
-    // 降低旋转灵敏度（从 2.5/1.5 改为 1.8/1.2），更稳定
-    this.handRot.y = ((lm[0].x + lm[9].x) / 2 - 0.5) * 1.8;
-    this.handRot.x = ((lm[0].y + lm[9].y) / 2 - 0.5) * 1.2;
+    // --- A. 握拳检测 (视图切换) ---
+    let fistDist = 0;
+    [8, 12, 16, 20].forEach(t => fistDist += Math.hypot(lm[t].x-lm[0].x, lm[t].y-lm[0].y, lm[t].z-lm[0].z));
+    fistDist /= 4;
+    const isFist = fistDist < 0.30; // 稍微放宽一点点握拳判定
 
-    // ---- 🌟 NEW: Five fingers spread → galaxy spread ----
-    // 计算所有指尖到手腕的距离（借鉴 gem4）
-    const tips = [4, 8, 12, 16, 20]; // thumb, index, middle, ring, pinky tips
-    let accumulationDist = 0;
-    tips.forEach(tip => {
-      const dx = lm[tip].x - lm[0].x;
-      const dy = lm[tip].y - lm[0].y;
-      const dz = lm[tip].z - lm[0].z;
-      accumulationDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    });
-    const openMetric = accumulationDist / 5.0;
-
-    // 优化映射区间，降低灵敏度（0.25 → 0.65 映射到 0.35 → 2.2）
-    const mappedSpread = this._mapLinear(openMetric, 0.25, 0.65, 0.35, 2.2);
-    this.handSpread = this._clamp(mappedSpread, 0.3, 2.5);
-
-    // 触发回调
-    if (this.cb.onHandSpread) {
-      this.cb.onHandSpread(this.handSpread);
-    }
-
-    // ---- 🌟 NEW: Palm width → Z-axis depth (视差缩放) ----
-    // 使用掌骨间距（index MCP → pinky MCP）代替不稳定的绝对 Z 坐标
-    const indexMCP = lm[5];
-    const pinkyMCP = lm[17];
-    const palmWidth = Math.sqrt(
-      Math.pow(indexMCP.x - pinkyMCP.x, 2) +
-      Math.pow(indexMCP.y - pinkyMCP.y, 2)
-    );
-
-    // 掌心离镜头越近，二维投射宽度越大 → 视差距离缩放
-    const mappedDepth = this._mapLinear(palmWidth, 0.08, 0.28, 0.5, 2.2);
-    this.handDepth = this._clamp(mappedDepth, 0.4, 2.5);
-
-    // 触发回调
-    if (this.cb.onHandDepth) {
-      this.cb.onHandDepth(this.handDepth);
-    }
-
-    // ---- two-finger sword pose detection ----
-    const swordPose = this._detectSwordPose(lm);
-    if (swordPose !== this.swordPoseActive) {
-      this.swordPoseActive = swordPose;
-      if (this.cb.onSwordPose) this.cb.onSwordPose(swordPose);
-      if (this.cb.onStatus && swordPose) {
-        this.cb.onStatus('双指剑诀 - 剑阵启动');
+    if (isFist) {
+      if (!this._fistOn && now - this._lastFistTime > 1500) {
+        this.cb.onFist?.(); // 触发切换
+        this._lastFistTime = now;
       }
-    }
-
-    // ---- horizontal wave → switch POI ----
-    const cx = lm[9].x; // middle-finger MCP x
-    if (this._lastX !== null && now - this._lastSw > 600 && Math.abs(cx - this._lastX) > 0.07) {
-      if (cx > this._lastX) {
-        if (this.cb.onSwipeLeft) this.cb.onSwipeLeft();   // hand moved right → previous POI
-      } else {
-        if (this.cb.onSwipeRight) this.cb.onSwipeRight(); // hand moved left → next POI
-      }
-      this._lastSw = now;
-    }
-    this._lastX = cx;
-
-    // ---- fist detection → toggle view ----
-    // Average distance of 4 fingertip landmarks from wrist
-    let d = 0;
-    [8, 12, 16, 20].forEach(t => {
-      const dx = lm[t].x - lm[0].x;
-      const dy = lm[t].y - lm[0].y;
-      const dz = lm[t].z - lm[0].z;
-      d += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    });
-    d /= 4;
-
-    if (d < 0.26 && !this._fistOn && now - this._lastFist > 1200) {
-      if (this.cb.onFist) this.cb.onFist();
       this._fistOn = true;
-      this._lastFist = now;
-    } else if (d > 0.4) {
+      this.isPoseLocked = true; // 握拳时锁住屏幕不让动
+    } else if (fistDist > 0.45) {
       this._fistOn = false;
     }
+
+    // --- B. ✌️ 比耶检测 (触发星系快速自转) ---
+    const isVPose = this._detectVPose(lm);
+    if (isVPose) {
+      this._vPoseLastSeen = now;
+      if (!this.vPoseActive) {
+        this.vPoseActive = true;
+        this.isPoseLocked = true; // 开启互斥锁，防止缩放和乱晃
+        this.cb.onVPose?.(true);
+        this.cb.onStatus?.('🌀 ✌️ 锁定 - 星系快速环绕');
+      }
+    } else {
+      // 缓冲 500ms：手指稍微弯一下不会立刻断开
+      if (this.vPoseActive && now - this._vPoseLastSeen > 500) {
+        this.vPoseActive = false;
+        this.isPoseLocked = false; // 解除互斥锁
+        this.cb.onVPose?.(false);
+        this.cb.onStatus?.('🔓 解除环绕');
+      }
+    }
+
+    // ==========================================
+    // 3. 基础移动与缩放 (互斥锁逻辑同步修改)
+    // ==========================================
+
+    // 【核心修复】如果当前正在结印（握拳、✌️比耶、合十），直接跳过旋转和缩放的计算！
+    if (!this.vPoseActive && !this.handsTogether && !this._fistOn) {
+      this.isPoseLocked = false;
+
+      // -- 手部位置 → 旋转角度 --
+      this.handRot.y = ((lm[0].x + lm[9].x) / 2 - 0.5) * 1.8;
+      this.handRot.x = ((lm[0].y + lm[9].y) / 2 - 0.5) * 1.2;
+
+      // -- 五指张开 → 扩散 --
+      const tips = [4, 8, 12, 16, 20];
+      let accDist = 0;
+      tips.forEach(t => {
+        accDist += Math.hypot(lm[t].x - lm[0].x, lm[t].y - lm[0].y, lm[t].z - lm[0].z);
+      });
+      const openMetric = accDist / 5.0;
+      const targetSpread = this._clamp(this._mapLinear(openMetric, 0.25, 0.65, 0.35, 2.2), 0.3, 2.5);
+
+      // 死区：变化大于 0.05 才更新，防止微微抽搐
+      if (Math.abs(targetSpread - this.handSpread) > 0.05) {
+        this.handSpread += (targetSpread - this.handSpread) * 0.5; // 平滑过渡
+        this.cb.onHandSpread?.(this.handSpread);
+      }
+
+      // -- 手掌前后移动 (宽度) → 缩放 --
+      const palmWidth = Math.hypot(lm[5].x - lm[17].x, lm[5].y - lm[17].y);
+      const targetDepth = this._clamp(this._mapLinear(palmWidth, 0.08, 0.28, 0.5, 2.2), 0.4, 2.5);
+
+      // 死区：前后移动幅度太小时忽略，修复一动手指就放大缩小的 Bug
+      if (Math.abs(targetDepth - this.handDepth) > 0.06) {
+        this.handDepth += (targetDepth - this.handDepth) * 0.4; // 平滑过渡
+        this.cb.onHandDepth?.(this.handDepth);
+      }
+    }
+
+    // --- C. 水平挥手切换视角 (挥手动作不受互斥锁限制，因为它是一瞬间的) ---
+    const cx = lm[9].x;
+    if (this._lastX !== null && now - this._lastSw > 800 && Math.abs(cx - this._lastX) > 0.08) {
+      cx > this._lastX ? this.cb.onSwipeLeft?.() : this.cb.onSwipeRight?.();
+      this._lastSw = now;
+      this.cb.onStatus?.('👋 挥手切换视角');
+    }
+    this._lastX = cx;
   }
 
-  // ---- Helper methods (借鉴 Three.js MathUtils) ----
-  _mapLinear(value, a1, a2, b1, b2) {
-    return b1 + (value - a1) * (b2 - b1) / (a2 - a1);
+  // ==========================================
+  // 工具函数
+  // ==========================================
+
+  _distance3(p1, p2) {
+    return Math.hypot(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z);
   }
 
-  _clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+  _mapLinear(x, a1, a2, b1, b2) {
+    return b1 + (x - a1) * (b2 - b1) / (a2 - a1);
   }
 
-  _distance3(a, b) {
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    const dz = a.z - b.z;
-    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  _clamp(x, min, max) {
+    return Math.max(min, Math.min(max, x));
   }
 
-  _fingerExtended(lm, tip, pip, mcp) {
-    const wrist = lm[0];
-    const tipDist = this._distance3(lm[tip], wrist);
-    const pipDist = this._distance3(lm[pip], wrist);
-    const mcpDist = this._distance3(lm[mcp], wrist);
-    return tipDist > pipDist * 1.08 && pipDist > mcpDist * 0.98;
+  _fallback(reason) {
+    this.handActive = false;
+    this.cb.onFallback?.(reason);
+    this.cb.onMode?.('mouse');
   }
 
-  _fingerCurled(lm, tip, pip, mcp) {
-    const wrist = lm[0];
-    const tipDist = this._distance3(lm[tip], wrist);
-    const pipDist = this._distance3(lm[pip], wrist);
-    const mcpDist = this._distance3(lm[mcp], wrist);
-    return tipDist < pipDist * 1.08 || tipDist < mcpDist * 1.02;
+  // ✌️ 比耶判定：食指中指伸直，无名指小拇指弯曲
+  _detectVPose(lm) {
+    const idxExt = this._fingerExtended(lm, 8, 6);
+    const midExt = this._fingerExtended(lm, 12, 10);
+    const ringCur = this._fingerCurled(lm, 16, 14);
+    const pinCur = this._fingerCurled(lm, 20, 18);
+    return idxExt && midExt && ringCur && pinCur;
   }
 
-  _detectSwordPose(lm) {
-    const indexExtended = this._fingerExtended(lm, 8, 6, 5);
-    const middleExtended = this._fingerExtended(lm, 12, 10, 9);
-    const ringCurled = this._fingerCurled(lm, 16, 14, 13);
-    const pinkyCurled = this._fingerCurled(lm, 20, 18, 17);
-    const fingertipGap = this._distance3(lm[8], lm[12]);
+  _fingerExtended(lm, tip, pip) {
+    return lm[tip].y < lm[pip].y;
+  }
 
-    return indexExtended &&
-      middleExtended &&
-      ringCurled &&
-      pinkyCurled &&
-      fingertipGap > 0.02 &&
-      fingertipGap < 0.18;
+  _fingerCurled(lm, tip, pip) {
+    return lm[tip].y > lm[pip].y;
   }
 }

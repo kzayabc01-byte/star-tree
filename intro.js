@@ -1,15 +1,15 @@
 const STAGES = [
-  ['intro-stage-birth', 1100],
-  ['intro-stage-charge', 1800],
-  ['intro-stage-ignite', 1400],
-  ['intro-stage-blast', 950],
-  ['intro-stage-galaxyReveal', 1500],
-  ['intro-stage-done', 600]
+  ['intro-stage-birth', 600],
+  ['intro-stage-charge', 1000],
+  ['intro-stage-ignite', 900],
+  ['intro-stage-blast', 1100],
+  ['intro-stage-galaxyReveal', 1000],
+  ['intro-stage-done', 300]
 ];
 
 const REDUCED_MOTION_STAGES = [
-  ['intro-stage-galaxyReveal', 450],
-  ['intro-stage-done', 150]
+  ['intro-stage-galaxyReveal', 300],
+  ['intro-stage-done', 100]
 ];
 
 function clearTimers(timers) {
