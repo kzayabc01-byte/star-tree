@@ -785,3 +785,93 @@ body.intro-complete .tp-dfwv {
     height: 100%;
     object-fit: cover;
 }
+
+/* ---- 🌟 顶部中央快捷按钮 ---- */
+#quick-actions {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 16px;
+    z-index: 200;
+    pointer-events: none;
+}
+
+#quick-actions button {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-radius: 40px;
+    background: rgba(10, 20, 40, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1.2);
+    white-space: nowrap;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+#quick-actions button:hover {
+    border-color: rgba(255, 255, 255, 0.6);
+    background: rgba(20, 40, 80, 0.85);
+    box-shadow:
+        0 6px 30px rgba(0, 0, 0, 0.5),
+        0 0 25px rgba(100, 180, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+#quick-actions button:active {
+    transform: scale(0.95);
+    transition: all 0.1s ease;
+}
+
+#quick-actions .btn-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+
+#quick-actions .btn-label {
+    letter-spacing: 1px;
+}
+
+#quick-actions .btn-key {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 12px;
+    font-weight: normal;
+    color: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    letter-spacing: 0;
+}
+
+/* 全局视角按钮专属色调 */
+#btn-global-view {
+    border-color: rgba(100, 200, 255, 0.4);
+}
+#btn-global-view:hover {
+    border-color: rgba(100, 200, 255, 0.8);
+    box-shadow:
+        0 6px 30px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(100, 200, 255, 0.45);
+}
+
+/* 散落按钮专属色调 */
+#btn-scatter {
+    border-color: rgba(255, 150, 200, 0.4);
+}
+#btn-scatter:hover {
+    border-color: rgba(255, 150, 200, 0.8);
+    box-shadow:
+        0 6px 30px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(255, 150, 200, 0.45);
+}

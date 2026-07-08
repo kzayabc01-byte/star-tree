@@ -98,6 +98,27 @@ export class GalaxyUI {
         this.callbacks.onRandomizeGalaxy();
       }
     });
+
+    // 视觉分隔符
+    effectsFolder.addBlade({ view: 'separator' });
+
+    // 🌏 全局视角按钮
+    effectsFolder.addButton({
+      title: '🌏 全局视角 (拉远)',
+    }).on('click', () => {
+      if (this.callbacks.onGlobalView) {
+        this.callbacks.onGlobalView();
+      }
+    });
+
+    // 🌌 散落回星系按钮
+    effectsFolder.addButton({
+      title: '🌌 散落回星系',
+    }).on('click', () => {
+      if (this.callbacks.onScatterToGalaxy) {
+        this.callbacks.onScatterToGalaxy();
+      }
+    });
   }
 
   updateFPS(fps) {

@@ -21,8 +21,11 @@ import {
   length,
   sin,
   cos,
+  acos,
   uv,
   smoothstep,
+  step,
+  floor,
   texture,
   normalize,
   pow
@@ -97,6 +100,8 @@ export class GalaxySimulation {
     this.lastGatheringLevel = 0.0;
     this.swordPoseActive = false;
     this.isTreeLocked = false; // 🌟 一键触发后永久定型
+    this.scatteringMode = false;   // 🌌 散落回星系动画
+    this.scatterProgress = 0.0;
 
     // Leaf particle system state
     this.LEAF_COUNT = config.leafCount || 15000;
@@ -226,63 +231,80 @@ export class GalaxySimulation {
       this.spawnPositionBuffer.element(idx).assign(position);
       this.originalPositionBuffer.element(idx).assign(position);
 
-      // ---- Calculate growth target position (100% 绝对安全的树形态算法) ----
-        const growthSeed = hash(seed.add(10));
-        const h = growthSeed; // 0.0 到 1.0
+      // ═══════════════════════════════════════════════════════
+      // 🌳🌳🌳 分块组装大法：高耸主干与扁平化层次树冠 (Layered Crown)
+      // ═══════════════════════════════════════════════════════
+      const growthSeed = hash(seed.add(10.0));
+      const R = this.uniforms.galaxy.radius;
+      const treeMaxHeight = R.mul(float(3.8)); // [增强]：拔高整棵树的上限，主干会更修长挺拔！
 
-        const MAX_TREE_HEIGHT = this.uniforms.galaxy.radius.mul(3.5);
-        const rawTreeY = h.mul(MAX_TREE_HEIGHT);
+      // 决定命运的抛硬币（约15%去拼树干，剩下的去做叶片）
+      const partType = growthSeed;
+      const isLeaf = step(float(0.15), partType);
 
-        // 1. 发光根系 (收缩范围，快速过渡到树干，不再像摊大饼)
-        const rootFactor = float(1.0).sub(smoothstep(float(0.0), float(0.08), h));
-        const rootSpread = rootFactor.pow(float(2.0)).mul(float(2.0));
+      // ==========================================
+      // 🧩 零件 1：绝对不糊住任何东西的"参天巨木组"
+      // ==========================================
+      const trunkH = hash(seed.add(20.0)); // 在高度0.0 ~ 1.0之间游走
+      const trunkY = trunkH.mul(treeMaxHeight);
 
-        // 2. 笔直纤细的树干 (大幅缩小树干宽度)
-        const trunkSpread = float(0.06);
+      // 树干结构设计：根盘极剧收紧，主轴非常之细 (绝不去遮视野！)
+      const rootFlare = float(1.0).sub(trunkH).pow(float(6.0)).mul(R.mul(float(0.7)));
+      const trunkRadius = rootFlare.add(R.mul(float(0.06)));
 
-        // 3. 饱满圆润的自然树冠穹顶 (🌟 核心修复：使用完美抛物线曲线)
-        const canopyFactor = smoothstep(float(0.4), float(1.0), h);
-        // canopyCurve: 0.4处为0 -> 0.7处为1(最宽) -> 1.0处收回0(完美圆顶)
-        const canopyCurve = float(1.0).sub(pow(canopyFactor.mul(2.0).sub(1.0), float(2.0)));
-        const crownSpread = canopyCurve.mul(float(5.5)); // 树冠展开 5.5
+      const trunkAngle = hash(seed.add(21.0)).mul(6.28318);
+      const trunkPos = vec3(
+        cos(trunkAngle).mul(trunkRadius),
+        trunkY,
+        sin(trunkAngle).mul(trunkRadius)
+      );
 
-        // 4. 树叶团簇与噪点
-        const treeAngle = hash(seed.add(11)).mul(6.28318);
-        const noise = sin(treeAngle.mul(15.0).add(h.mul(40.0))).mul(float(0.5)).add(float(0.5));
-        // 🌟 噪点也必须受曲线约束，这样头顶就不会爆出尖刺
-        const canopyNoise = noise.mul(canopyCurve).mul(float(1.2));
+      // ==========================================
+      // 🧩 零件 2：拒绝塌方的 "高层悬浮松叶/扁平迎客松 云盘"
+      // ==========================================
+      const CLUSTER_COUNT = float(22.0);
+      const clusterId = floor(hash(seed.add(30.0)).mul(CLUSTER_COUNT));
+      const clusterSeed = clusterId.mul(1.234);
 
-        // 综合半径展开
-        const baseSpread = rootSpread.add(trunkSpread).add(crownSpread).add(canopyNoise);
+      // --- 核心改动 1：锁定最高空高度领域！严禁往树根跑！---
+      // 球心必须停留在顶部：高度基础为总高的 70% ~ 105% 范围间
+      const clBaseY = treeMaxHeight.mul(float(0.7)).add(
+         hash(clusterSeed.add(2.0)).mul(treeMaxHeight.mul(float(0.35)))
+      );
 
-        // 内部体积填充 (让树冠不是空心壳)
-        const volumeFill = float(1.0).sub(hash(seed.add(20)).mul(float(0.6)).mul(canopyFactor));
+      // 巨大的开花展开度（巨伞感）
+      const clSpreadRatio = pow(hash(clusterSeed.add(1.0)), float(0.6));
+      const clAngle = hash(clusterSeed).mul(6.28318);
+      const clDist = clSpreadRatio.mul(R.mul(float(2.8)));
 
-        // 角度与螺旋
-        const treeSpiralAngle = h.mul(6.28318).mul(float(1.5));
-        const swayAngle = hash(seed.add(12)).sub(0.5).mul(0.6).mul(canopyFactor);
-        const growthAngleFinal = treeAngle.add(treeSpiralAngle).add(swayAngle);
+      // 【关键切除垂坠感】: 最多只下降 0.15，悬得很稳！
+      const clDroop = clSpreadRatio.pow(float(2.0)).mul(treeMaxHeight.mul(float(0.15)));
+      const clY = clBaseY.sub(clDroop);
 
-        const growthRadiusFinal = baseSpread.mul(volumeFill).mul(this.uniforms.galaxy.radius);
-        const growthX = cos(growthAngleFinal).mul(growthRadiusFinal);
-        const growthZ = sin(growthAngleFinal).mul(growthRadiusFinal);
+      const clusterCenter = vec3(cos(clAngle).mul(clDist), clY, sin(clAngle).mul(clDist));
 
-        // 计算最终 Y 坐标 (🌟 垂直体积 puffY 也受 canopyCurve 约束，彻底消灭头顶喷泉！)
-        const droop = crownSpread.mul(float(0.2));
-        const puffY = hash(seed.add(21)).sub(0.5).mul(float(2.8)).mul(canopyCurve);
+      // --- 核心改动 2：压缩Y厚度，改成迎客松般的平云盘(扁平层次感) ---
+      const lRadius = pow(hash(seed.add(43.0)), float(0.5)).mul(R.mul(float(1.5))); // 小树云的外放极限
+      const lTheta = hash(seed.add(41.0)).mul(6.28318);
+      const lPhi = hash(seed.add(42.0)).mul(3.14159);
 
-        const growthY = rawTreeY
-            .sub(droop.mul(this.uniforms.galaxy.radius))
-            .add(puffY.mul(this.uniforms.galaxy.radius))
-            .sub(rootFactor.mul(this.uniforms.galaxy.radius.mul(0.3))) // 根部微沉
-            .sub(this.uniforms.galaxy.radius.mul(1.5));
+      // 给 XYZ 画球，但疯狂压缩 0.3 的高度，变松油薄饼块：
+      const leafX = sin(lPhi).mul(cos(lTheta)).mul(lRadius);
+      const leafY = cos(lPhi).mul(lRadius).mul(float(0.3));  // 💥 扁平化
+      const leafZ = sin(lPhi).mul(sin(lTheta)).mul(lRadius);
 
-        const growthPosition = vec3(growthX, growthY, growthZ);
+      const leafPos = clusterCenter.add(vec3(leafX, leafY, leafZ));
 
-        // 写入 Buffer
-        const treeLevel = h.mul(3.0);
-        this.growthTargetBuffer.element(idx).assign(growthPosition);
-        this.growthTreeLevelBuffer.element(idx).assign(treeLevel);
+      // ==========================================
+      // 🛠️ 合体并归还至天空正上方
+      // ==========================================
+      const finalRawPos = mix(trunkPos, leafPos, isLeaf);
+
+      // ✅ 深植入地下 1.5*R，让上部云层留出足够视野！
+      const growthPosition = finalRawPos.sub(vec3(float(0.0), R.mul(float(1.5)), float(0.0)));
+
+      this.growthTargetBuffer.element(idx).assign(growthPosition);
+      this.growthTreeLevelBuffer.element(idx).assign(isLeaf);
 
       const swordBladeCount = this.uniforms.galaxy.armCount.mul(3.0).add(6.0);
       const swordBladeIndex = hash(seed.add(21)).mul(swordBladeCount).floor();
@@ -485,9 +507,13 @@ export class GalaxySimulation {
       // Blend between default and tree colors
       const finalColor = mix(defaultColor, levelColor, growthActive.mul(growthProg));
 
-      // 🌟 NEW: 树干更亮，树叶柔和发光
+      // 根据分件上色：主干中等亮(1.2)，高悬落叶爆亮(2.0)
       const brightnessBoost = growthActive.mul(growthProg).mul(
-        float(1.5).sub(treeLevel.mul(0.3)) // 主干亮度 +50%，树叶 +20%
+        mix(
+          float(1.2), // 主干中等程度照亮，别闪瞎
+          float(2.0), // 把所有的极昼特效资源分配给孤悬的高空落叶
+          treeLevel
+        )
       );
 
       return finalColor.mul(this.uniforms.visual.starBrightness.add(brightnessBoost));
@@ -497,33 +523,19 @@ export class GalaxySimulation {
     spriteMaterial.colorNode = vec4(starColorNode.x, starColorNode.y, starColorNode.z, float(1.0));
     spriteMaterial.opacityNode = circleShape.mul(0.15); // 降低基础透明度，避免加法混合过曝
 
-    // 🌳 NEW: Dynamic particle size based on tree level
-    // 主干粒子大（0.08），树枝中等（0.06），树叶小（0.04）
+    // ---- 🌳 大小分离渲染：细心打磨分块颗粒度 ----
     const dynamicSizeNode = Fn(() => {
       const baseSize = this.uniforms.visual.particleSize;
 
-      // 树的层级影响大小
-      // Level 0: 主干 → 1.5倍大小
-      // Level 1: 主分支 → 1.0倍
-      // Level 2: 次级分支 → 0.7倍
-      // Level 3: 树叶 → 0.5倍
-      const sizeMultiplier = mix(
-        mix(
-          mix(float(1.5), float(1.0), treeLevel.sub(float(0.0)).max(0.0).min(1.0)),
-          float(0.7),
-          treeLevel.sub(float(1.0)).max(0.0).min(1.0)
-        ),
-        float(0.5),
-        treeLevel.sub(float(2.0)).max(0.0).min(1.0)
-      );
+      // treeLevel (是主干 = 0.0; 是漂浮树叶 = 1.0)
+      // 主心骨极尽细腻以形成结构线条（0.3x），
+      // 脱离枝干形成的树叶冠庞大、松散并具有空洞呼吸感（1.3x）
+      const typeSize = mix(float(0.3), float(1.3), treeLevel);
 
-      // 只在生长模式下应用
       const growthActive = this.uniforms.compute.growthModeActive;
       const growthProg = this.uniforms.compute.growthProgress;
 
-      const finalMultiplier = mix(float(1.0), sizeMultiplier, growthActive.mul(growthProg));
-
-      return baseSize.mul(finalMultiplier);
+      return baseSize.mul(mix(float(1.0), typeSize, growthActive.mul(growthProg)));
     })();
 
     spriteMaterial.scaleNode = dynamicSizeNode;
@@ -1133,6 +1145,18 @@ export class GalaxySimulation {
   }
 
   /**
+   * 🌌 将树形态散落回星系形态
+   * Smoothly reverses the growth animation, particles spring back to galaxy.
+   */
+  scatterToGalaxy() {
+    if (!this.isTreeLocked && !this.growthMode) return;
+    if (this.scatteringMode) return; // already scattering
+    this.scatteringMode = true;
+    this.scatterProgress = this.growthProgress;
+    console.log('🌌 Scattering tree back to galaxy...');
+  }
+
+  /**
    * Main update loop - runs compute shaders and updates uniforms
    */
   async update(renderer, deltaTime, mouse3D, mousePressed) {
@@ -1177,8 +1201,31 @@ export class GalaxySimulation {
       this.lastGatheringLevel = Math.max(0, this.lastGatheringLevel - deltaTime * 0.5);
     }
 
+    // ---- 🌌 散落动画：树 → 星系 (反向过渡) ----
+    if (this.scatteringMode) {
+      // 平滑递减 progress：树冠先缩、树干后散
+      const scatterSpeed = this.scatterProgress > 0.6 ? 0.55 : (this.scatterProgress > 0.2 ? 0.35 : 0.2);
+      this.scatterProgress -= deltaTime * scatterSpeed;
+
+      if (this.scatterProgress <= 0.0) {
+        this.scatterProgress = 0.0;
+        this.scatteringMode = false;
+        this.growthMode = false;
+        this.isTreeLocked = false;
+        this.uniforms.compute.growthModeActive.value = 0.0;
+        this.uniforms.compute.growthProgress.value = 0.0;
+        this.uniforms.compute.growthSpiralIntensity.value = 0.0;
+        console.log('🌌 Scatter complete. Galaxy restored.');
+      } else {
+        this.growthProgress = this.scatterProgress;
+        this.uniforms.compute.growthProgress.value = this.growthProgress;
+        // 螺旋强度随进度递减
+        this.uniforms.compute.growthSpiralIntensity.value = Math.pow(this.growthProgress, 0.5);
+      }
+    }
+
     // ---- 三阶段生长动画 (保持不变) ----
-    if (this.growthMode) {
+    if (this.growthMode && !this.scatteringMode) {
       let growthSpeed;
       if (this.growthProgress < 0.3) {
         growthSpeed = 0.6;

@@ -157,6 +157,15 @@ export class CameraController {
     }
   }
 
+  /** 🌏 Zoom way out to see the entire structure from afar. */
+  globalView() {
+    this._tTarget = { x: 0, y: -2, z: 0 };
+    this._tTheta = 0;
+    this._tPhi = 0.08;       // nearly top-down
+    this._tRadius = 55;       // far out to see everything
+    this._zoom = 1.0;
+  }
+
   /** Rebuild POIs after galaxy structure changes (arm count, radius, etc.). */
   regeneratePois() {
     this._generatePois();
@@ -337,6 +346,7 @@ export class CameraController {
         break;
       case 'r': case 'R': this.resetView();         break;
       case 'f': case 'F': this.toggleFullscreen();  break;
+      case 'g': case 'G': this.globalView();        break;
     }
   }
 }

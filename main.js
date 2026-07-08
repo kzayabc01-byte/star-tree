@@ -19,7 +19,7 @@ const config = {
   armCount: 2,
   armWidth: 2.25,
   randomness: 1.8,
-  particleSize: 0.06,
+  particleSize: 0.15,
   starBrightness: 0.6,
   denseStarColor: '#1885ff',
   sparseStarColor: '#ffb28a',
@@ -122,6 +122,43 @@ window.addEventListener('mousemove', (event) => {
   );
   raycaster.setFromCamera(mouse, camera);
   raycaster.ray.intersectPlane(intersectionPlane, mouse3D);
+});
+
+// 🌌 键盘快捷键：S 散落 / T 切换树形态
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.repeat) return;
+  if (e.key === 's' || e.key === 'S') {
+    e.preventDefault();
+    galaxySimulation.scatterToGalaxy();
+    viewController._applyPoi();
+    showStatus('🌌 散落回星系...');
+  }
+  if (e.key === 't' || e.key === 'T') {
+    e.preventDefault();
+    if (!galaxySimulation.isTreeLocked) {
+      galaxySimulation.startGrowth();
+      currentHandSpread = 1.0;
+      currentHandDepth = 1.0;
+      viewController._tRadius = 75;
+      viewController._tTarget.y = 12;
+      showStatus('🌲 巨树模式 — 仰望树冠');
+    } else {
+      galaxySimulation.scatterToGalaxy();
+      viewController._applyPoi();
+      showStatus('🌌 散落回星系...');
+    }
+  }
+});
+
+// 🌟 顶部快捷按钮事件
+document.getElementById('btn-global-view').addEventListener('click', () => {
+  viewController.globalView();
+  showStatus('🌏 全局视角 — 纵览全貌');
+});
+document.getElementById('btn-scatter').addEventListener('click', () => {
+  galaxySimulation.scatterToGalaxy();
+  showStatus('🌌 散落回星系...');
 });
 
 /**
@@ -402,7 +439,17 @@ const ui = new GalaxyUI(config, {
 
   onThemeChange: (theme) => applyTheme(theme),
 
-  onRandomizeGalaxy: () => randomizeGalaxy()
+  onRandomizeGalaxy: () => randomizeGalaxy(),
+
+  onGlobalView: () => {
+    viewController.globalView();
+    showStatus('🌏 全局视角 — 纵览全貌');
+  },
+
+  onScatterToGalaxy: () => {
+    galaxySimulation.scatterToGalaxy();
+    showStatus('🌌 散落回星系...');
+  }
 });
 
 // FPS counter
@@ -452,8 +499,8 @@ async function animate() {
     currentHandSpread += (targetHandSpread - currentHandSpread) * 0.08;
     currentHandDepth += (targetHandDepth - currentHandDepth) * 0.08;
   } else {
-    // 树锁定或结印状态下，平滑归位到安全默认值，防止镜头乱飙
-    currentHandSpread += (0.6 - currentHandSpread) * 0.08;
+    // 树锁定或结印状态下，树冠彻底绽放展开
+    currentHandSpread += (1.5 - currentHandSpread) * 0.08;
     currentHandDepth += (1.0 - currentHandDepth) * 0.08;
   }
 
