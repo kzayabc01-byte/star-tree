@@ -19,7 +19,7 @@ const config = {
   armCount: 2,
   armWidth: 2.25,
   randomness: 1.8,
-  particleSize: 0.15,
+  particleSize: 0.07,
   starBrightness: 0.6,
   denseStarColor: '#1885ff',
   sparseStarColor: '#ffb28a',

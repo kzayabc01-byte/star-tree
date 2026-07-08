@@ -528,9 +528,8 @@ export class GalaxySimulation {
       const baseSize = this.uniforms.visual.particleSize;
 
       // treeLevel (是主干 = 0.0; 是漂浮树叶 = 1.0)
-      // 主心骨极尽细腻以形成结构线条（0.3x），
-      // 脱离枝干形成的树叶冠庞大、松散并具有空洞呼吸感（1.3x）
-      const typeSize = mix(float(0.3), float(1.3), treeLevel);
+      // 0.07 × 2.0 ≈ 0.14 (主干) / 0.07 × 2.2 ≈ 0.15 (树冠)
+      const typeSize = mix(float(2.0), float(2.2), treeLevel);
 
       const growthActive = this.uniforms.compute.growthModeActive;
       const growthProg = this.uniforms.compute.growthProgress;
